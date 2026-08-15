@@ -72,6 +72,7 @@ class Capability extends RefCounted:
 	## Physics step the body is integrated with, seconds. The arc is quantised to
 	## it and so is how late a take-off trigger can fire.
 	var tick := 1.0 / 60.0
+	var coyote_time := 0.12
 
 	## Launch speed the arc solves for.
 	##
@@ -123,11 +124,18 @@ class Capability extends RefCounted:
 		var t := flight_time(dh)
 		return 0.0 if is_nan(t) else v * t
 
-	## Widest void, edge to edge, a full-pace run-jump may cross for a rise of dh:
-	## the arc, less the footprint that has to land past the far lip, less the one
-	## frame the take-off trigger may be late by. Post: >= 0.
+	## Widest void, edge to edge, a full-pace run-jump may cross for a rise of dh.
+	## Accounts for rim-edge takeoff (+radius) and coyote time (body runs past
+	## the rim before jumping, gaining coy_d horizontal and losing coy_fall height).
 	func gap_jump_budget(dh: float) -> float:
-		return maxf(jump_reach(dh, run_speed) - radius - run_speed * tick, 0.0)
+		if not jump_enabled:
+			return 0.0
+		var coy_d: float = run_speed * coyote_time
+		var coy_fall: float = 0.5 * gravity * coyote_time * coyote_time
+		var t: float = flight_time(dh + coy_fall)
+		if is_nan(t) or t <= 0.0:
+			return maxf(jump_reach(dh, run_speed) + radius * 2.0 - run_speed * tick, 0.0)
+		return maxf(run_speed * t + radius * 2.0 + coy_d - run_speed * tick, 0.0)
 
 	## A void of `gap` metres, edge to edge, is crossable for a rise of dh.
 	##
@@ -267,6 +275,7 @@ func set_capability(body: Node) -> void:
 		cap.land_roll_recover = _num(body, "land_roll_recover", cap.land_roll_recover)
 		cap.jump_land_recover = _num(body, "jump_land_recover", cap.jump_land_recover)
 		cap.radius = body_radius(body, cap.radius)
+		cap.coyote_time = _num(body, "coyote_time", cap.coyote_time)
 	set_capability_direct(cap)
 
 

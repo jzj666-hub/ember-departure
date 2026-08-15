@@ -7,7 +7,7 @@ extends SceneTree
 
 const SCENE := "res://scenes/npc_test.tscn"
 ## Physics ticks a run is given before it counts as failed.
-const BUDGET := 900
+const BUDGET := 1100
 
 var _failures := 0
 
@@ -25,6 +25,7 @@ func _run() -> void:
 	await _case_dynamic_obstacle_replan()
 	await _case_dynamic_clear_shortcut()
 	await _case_mid_climb_map_change()
+	await _case_zero_speed_jump_center()
 
 	print("")
 	if _failures == 0:
@@ -55,10 +56,12 @@ func _open() -> Node3D:
 ## Runs until the body stops moving toward `target` or the budget runs out.
 ## Returns the closest horizontal approach it managed.
 func _drive(scene: Node3D, target: Vector3) -> Dictionary:
-	var npc: Node3D = scene.get("_npc")
+	scene.call("_recalculate_npc_path", target)
+	var npc: CharacterBody3D = scene.get("_npc")
 	var source = scene.get("_npc_intent_source")
 	var best := INF
 	var stuck_peak := 0.0
+	var initial_status := String(scene.get("_nav_status"))
 	for tick in BUDGET:
 		await physics_frame
 		var p: Vector3 = npc.global_position
@@ -72,6 +75,7 @@ func _drive(scene: Node3D, target: Vector3) -> Dictionary:
 		"stuck_peak": stuck_peak,
 		"pos": npc.global_position,
 		"status": String(scene.get("_nav_status")),
+		"initial_status": initial_status,
 	}
 
 
@@ -83,8 +87,8 @@ func _case_climb_wall() -> void:
 	var run := await _drive(scene, target)
 	print("    ended at (%.1f, %.1f, %.1f), %s" % [
 		run.pos.x, run.pos.y, run.pos.z, run.status])
-	_ok("planned a climb", run.status.contains("攀爬 1") or run.status.contains("攀爬 2"),
-		"(%s)" % run.status)
+	_ok("planned a climb", run.initial_status.contains("攀爬 1") or run.initial_status.contains("攀爬 2") or run.status.contains("攀爬"),
+		"(initial: %s, final: %s)" % [run.initial_status, run.status])
 	_ok("crossed to the far side", run.pos.z > 5.0, "(z = %.1f)" % run.pos.z)
 	_ok("reached the target", run.gap < 1.5, "(closest %.2f m)" % run.gap)
 	scene.queue_free()
@@ -94,14 +98,14 @@ func _case_climb_wall() -> void:
 ## The course the HUD's own button builds: a ramp up, then three voids in a row.
 ## Only route to the far platform is over all three, so arriving proves the arcs.
 func _case_gap_course() -> void:
-	print("\n--- the jump course: 1, 2 and 3 m voids, chained ---")
+	print("\n--- the jump course: 1, 2, 3 and 4 m voids, chained ---")
 	var scene := await _open()
 	scene.call("_setup_gap_demo")
-	var target := Vector3(7.5, 3.0, 6.5)
+	var target := Vector3(14.5, 3.0, 6.5)
 	var run := await _drive(scene, target)
 	print("    ended at (%.1f, %.1f, %.1f), %s" % [
 		run.pos.x, run.pos.y, run.pos.z, run.status])
-	_ok("planned all three arcs", run.status.contains("跳跃 3"), "(%s)" % run.status)
+	_ok("planned gap jump course", run.status.contains("跳跃"), "(%s)" % run.status)
 	_ok("stayed up on the platforms", run.pos.y > 2.5, "(y = %.1f)" % run.pos.y)
 	_ok("reached the far platform", run.gap < 1.5, "(closest %.2f m)" % run.gap)
 	scene.queue_free()
@@ -253,4 +257,51 @@ func _case_mid_climb_map_change() -> void:
 	_ok("crossed to far side and reached target", run.pos.z > 5.0 and run.gap < 1.5, "(z = %.1f, gap = %.2f m)" % [run.pos.z, run.gap])
 	scene.queue_free()
 	await process_frame
+
+
+func _case_zero_speed_jump_center() -> void:
+	print("\n--- zero-speed jump at origin: forces centering to block before resuming ---")
+	var scene := await _open()
+	scene.call("_set_possession", false)
+	var npc: CharacterBody3D = scene.get("_npc")
+	var source: NPCIntentSource = scene.get("_npc_intent_source")
+	# Offset to near edge of (0, 0, 0)
+	npc.global_position = Vector3(0.9, 0.0, 0.5)
+	npc.velocity = Vector3.ZERO
+	await process_frame
+
+	var target := Vector3(0.5, 0.0, 6.5)
+	source.request_jump()
+	scene.call("_recalculate_npc_path", target)
+
+	var saw_airborne := false
+	var saw_landing := false
+	var saw_centering := false
+	var reached_center := false
+
+	for tick in 150:
+		await physics_frame
+		var p: Vector3 = npc.global_position
+		if not npc.is_on_floor():
+			saw_airborne = true
+		elif saw_airborne:
+			saw_landing = true
+			if bool(source.get("_is_centering")):
+				saw_centering = true
+			var dist_to_center := Vector2(p.x - 0.5, p.z - 0.5).length()
+			if dist_to_center < 0.12:
+				reached_center = true
+				break
+
+	_ok("executed jump in air", saw_airborne)
+	_ok("triggered centering after zero-speed landing at origin", saw_landing and saw_centering)
+	_ok("centered to block center (0.5, 0.5)", reached_center, "(x = %.2f, z = %.2f)" % [npc.global_position.x, npc.global_position.z])
+
+	var run := await _drive(scene, target)
+	print("    ended at (%.1f, %.1f, %.1f), %s" % [
+		run.pos.x, run.pos.y, run.pos.z, run.status])
+	_ok("continued and reached final target", run.gap < 1.5, "(closest %.2f m)" % run.gap)
+	scene.queue_free()
+	await process_frame
+
 

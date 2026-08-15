@@ -32,6 +32,7 @@ func _run() -> void:
 	await _case("orthogonal 1 m void", 1, false)
 	await _case("orthogonal 2 m void", 2, false)
 	await _case("orthogonal 3 m void", 3, false)
+	await _case("orthogonal 4 m void", 4, false)
 	await _case("diagonal 1.41 m void", 1, true)
 	await _case("diagonal 2.83 m void", 2, true)
 

@@ -95,18 +95,20 @@ func _check_cell_gap() -> void:
 func _check_reach_table() -> void:
 	print("\n--- what the budget admits, per height difference ---")
 	var cap := NavGrid.Capability.new()
-	_ok("level budget 3.153 m", _near(cap.gap_jump_budget(0.0), 3.15306),
+	_ok("level budget 4.431 m", _near(cap.gap_jump_budget(0.0), 4.43113),
 		"(%.5f)" % cap.gap_jump_budget(0.0))
-	_ok("level: 3 m void crossable", cap.can_gap_jump(3.0, 0.0))
-	_ok("level: 4 m void refused", not cap.can_gap_jump(4.0, 0.0))
+	_ok("level: 4 m void crossable", cap.can_gap_jump(4.0, 0.0))
+	_ok("level: 5 m void refused", not cap.can_gap_jump(5.0, 0.0))
 	_ok("level: diagonal 2.828 m crossable", cap.can_gap_jump(2.82843, 0.0))
-	_ok("level: diagonal 4.243 m refused", not cap.can_gap_jump(4.24264, 0.0))
-	_ok("down 1 m: budget 3.790 m", _near(cap.gap_jump_budget(-1.0), 3.79034),
+	_ok("level: diagonal 4.243 m crossable", cap.can_gap_jump(4.24264, 0.0))
+	_ok("level: diagonal 5.657 m refused", not cap.can_gap_jump(5.65685, 0.0))
+	_ok("down 1 m: budget 5.083 m", _near(cap.gap_jump_budget(-1.0), 5.08302),
 		"(%.5f)" % cap.gap_jump_budget(-1.0))
-	_ok("down 1 m: 3.606 m void crossable", cap.can_gap_jump(3.60555, -1.0))
-	_ok("up 1 m: budget 2.060 m", _near(cap.gap_jump_budget(1.0), 2.06024),
+	_ok("down 1 m: 4.243 m void crossable", cap.can_gap_jump(4.24264, -1.0))
+	_ok("up 1 m: budget 3.232 m", _near(cap.gap_jump_budget(1.0), 3.23229),
 		"(%.5f)" % cap.gap_jump_budget(1.0))
-	_ok("up 1 m: 2 m void crossable", cap.can_gap_jump(2.0, 1.0))
+	_ok("up 1 m: 3 m void crossable", cap.can_gap_jump(3.0, 1.0))
+	_ok("up 1 m: 4 m void refused", not cap.can_gap_jump(4.0, 1.0))
 	# The narrow case is the one a centre-to-centre rule gets wrong in the other
 	# direction: the arc is still climbing when it reaches a lip this close, so
 	# the body would put its shins through it.
@@ -125,23 +127,23 @@ func _across(void_cells: int) -> Dictionary:
 
 
 func _check_ortho_gaps() -> void:
-	print("\n--- orthogonal voids: 1 to 3 cells are routes, 4 is not ---")
-	for cells in [1, 2, 3]:
+	print("\n--- orthogonal voids: 1 to 4 cells are routes, 5 is not ---")
+	for cells in [1, 2, 3, 4]:
 		var res := _across(cells)
 		_ok("%d-cell void crossed" % cells,
 			bool(res.complete) and _has_move(res, NavGrid.Move.JUMP),
 			"(%d waypoints)" % res.points.size())
-	var far := _across(4)
-	_ok("4-cell void refused", not bool(far.complete))
+	var far := _across(5)
+	_ok("5-cell void refused", not bool(far.complete))
 
 
 ## Two slabs whose nearest cells sit `step` apart on both axes.
 func _diagonally(step: int) -> Dictionary:
 	var grid := _grid()
-	_plate(grid, -4, -1, -4, -1)
-	_plate(grid, -1 + step, -1 + step + 3, -1 + step, -1 + step + 3)
+	_plate(grid, -5, -1, -5, -1)
+	_plate(grid, step, step + 4, step, step + 4)
 	return grid.find_path(Vector3(-1.5, 2.0, -1.5),
-		Vector3(float(step) - 0.5, 2.0, float(step) - 0.5))
+		Vector3(float(step) + 0.5, 2.0, float(step) + 0.5))
 
 
 func _check_diagonal_gaps() -> void:
@@ -163,10 +165,22 @@ func _check_rise_gaps() -> void:
 		for z in range(-1, 2):
 			grid.set_block(Vector3i(x, 1, z), true)
 			grid.set_block(Vector3i(x, 2, z), true)
-	var res := grid.find_path(Vector3(-1.5, 2.0, 0.5), Vector3(3.5, 3.0, 0.5))
+	var res2 := grid.find_path(Vector3(-1.5, 2.0, 0.5), Vector3(3.5, 3.0, 0.5))
 	_ok("2-cell void up one level is crossed",
-		bool(res.complete) and _has_move(res, NavGrid.Move.JUMP),
-		"(%d waypoints)" % res.points.size())
+		bool(res2.complete) and _has_move(res2, NavGrid.Move.JUMP),
+		"(%d waypoints)" % res2.points.size())
+
+	# 3-cell void up one level
+	var grid3 := _grid()
+	_plate(grid3, -5, -1, -1, 1, 1)
+	for x in range(3, 8):
+		for z in range(-1, 2):
+			grid3.set_block(Vector3i(x, 1, z), true)
+			grid3.set_block(Vector3i(x, 2, z), true)
+	var res3 := grid3.find_path(Vector3(-1.5, 2.0, 0.5), Vector3(4.5, 3.0, 0.5))
+	_ok("3-cell void up one level is crossed",
+		bool(res3.complete) and _has_move(res3, NavGrid.Move.JUMP),
+		"(%d waypoints)" % res3.points.size())
 
 
 func _check_classified_as_jump() -> void:

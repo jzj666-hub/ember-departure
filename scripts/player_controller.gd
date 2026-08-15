@@ -1383,6 +1383,23 @@ func _landing_for(drop: float, ground_speed: float, takeoff_drop: float = 0.0) -
 	return ["jump_land", jump_land_recover, 0.0]
 
 
+## Whether enough ground exists ahead of a landing point for a roll-out.
+## Probes forward along horizontal velocity at half the estimated slide distance.
+func _roll_has_ground(landing_pos: Vector3, vel: Vector3) -> bool:
+	var dir := Vector3(vel.x, 0.0, vel.z)
+	if dir.length_squared() < 0.01:
+		dir = global_basis.z
+	else:
+		dir = dir.normalized()
+	var dist: float = land_roll_speed * land_roll_recover / maxf(roll_rate, 0.01) * 0.5
+	var probe_from := landing_pos + dir * dist + Vector3.UP * 0.5
+	var probe_to := landing_pos + dir * dist - Vector3.UP * 0.5
+	var hit := _cast(get_world_3d().direct_space_state, probe_from, probe_to)
+	if hit.is_empty():
+		return false
+	return (hit.normal as Vector3).y >= climb_floor_dot and absf((hit.position as Vector3).y - landing_pos.y) <= 0.4
+
+
 ## Pre-triggers landing animation in mid-air based on estimated impact time.
 func _arm_landing() -> void:
 	if (state != State.FALLING and state != State.JUMPING) or _landing_take != "" \
@@ -1397,6 +1414,8 @@ func _arm_landing() -> void:
 	if drop < land_min_drop:
 		return
 	var pick := _landing_for(drop, speed(), _take_off_y - ground)
+	if pick[0] == "land_roll" and not _roll_has_ground(impact.pos as Vector3, velocity):
+		pick = ["land_hard", land_hard_recover, land_hard_lead]
 	var lead: float = pick[2]
 	if eta > lead:
 		return
@@ -1437,6 +1456,9 @@ func _predict_impact() -> Dictionary:
 			rise += v.y * tick
 		var next := at + Vector3(v.x * span, rise, v.z * span)
 		var hit := _cast(space, at, next)
+		if hit.is_empty() and (v.x * v.x + v.z * v.z) > 0.01:
+			var forward := Vector3(v.x, 0.0, v.z).normalized() * (_capsule_radius() * 0.8)
+			hit = _cast(space, at + forward, next + forward)
 		if hit.is_empty():
 			at = next
 			elapsed += span
@@ -1482,6 +1504,15 @@ func _land() -> void:
 		take = pick[0]
 		recover = pick[1]
 		_landing_rate = 1.0 if take == "jump_land" else land_rate_cap
+		_play_action(take, _landing_rate)
+
+	# Downgrade land_roll if jump height drop does not warrant roll or if roll would slide off an edge.
+	var actual_takeoff_drop: float = _take_off_y - global_position.y
+	if take == "land_roll" and (actual_takeoff_drop < land_roll_drop_min or not _roll_has_ground(global_position, velocity)):
+		var actual_drop: float = maxf(_air_peak_y - global_position.y, 0.0)
+		take = "land_hard" if actual_drop >= land_roll_drop_min else "jump_land"
+		recover = land_hard_recover if take == "land_hard" else jump_land_recover
+		_landing_rate = land_rate_cap if take == "land_hard" else 1.0
 		_play_action(take, _landing_rate)
 
 	if take == "land_roll":

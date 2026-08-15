@@ -457,7 +457,23 @@ func _on_repath_requested(from_pos: Vector3, target: Vector3) -> void:
 		return
 	_npc_intent_source.set_plan_result(result)
 	_draw_path(result.points, result.moves)
-	_nav_status = "受阻，已重算路径（%d 段）" % result.points.size()
+	var climbs := 0
+	var jumps := 0
+	var drops := 0
+	for m in result.moves:
+		if m == NavGrid.Move.CLIMB:
+			climbs += 1
+		elif m == NavGrid.Move.JUMP:
+			jumps += 1
+		elif m == NavGrid.Move.DROP:
+			drops += 1
+	if result.complete:
+		_nav_status = "路径 %d 段 · 攀爬 %d · 跳跃 %d · 落差 %d" % [
+			result.points.size(), climbs, jumps, drops]
+	else:
+		var last: Vector3 = result.points[result.points.size() - 1]
+		_nav_status = "目标不可达，已移动至最近点 (%.0f, %.0f, %.0f) · 路径 %d 段" % [
+			last.x, last.y, last.z, result.points.size()]
 
 
 func _on_path_finished(_target: Vector3) -> void:
@@ -758,10 +774,10 @@ func _setup_gap_demo() -> void:
 	if _is_possessed:
 		_set_possession(false)
 
-	# Voids of 1, 2 and 3 m: the near cells of consecutive platforms sit 2, 3 and
-	# 4 columns apart, and edge to edge that is one less each time.
+	# Voids of 1, 2, 3 and 4 m: near cells of consecutive platforms sit 2, 3, 4 and
+	# 5 columns apart, and edge to edge that is one less each time.
 	_slab(Vector3i(-10, 0, 4), Vector3i(-10, 0, 8))
-	for x0 in [-9, -5, 0, 6]:
+	for x0 in [-9, -5, 0, 6, 13]:
 		_slab(Vector3i(x0, 0, 4), Vector3i(x0 + 2, 2, 8))
 
 	# Near cells (-7, 13) and (-4, 16): three columns apart on both axes, so
@@ -770,7 +786,7 @@ func _setup_gap_demo() -> void:
 	_slab(Vector3i(-9, 0, 11), Vector3i(-7, 2, 13))
 	_slab(Vector3i(-4, 0, 16), Vector3i(-2, 2, 18))
 
-	_recalculate_npc_path(Vector3(7.5, 3.0, 6.5))
+	_recalculate_npc_path(Vector3(14.5, 3.0, 6.5))
 
 
 ## Fills the inclusive box `from`..`to` with cubes.
