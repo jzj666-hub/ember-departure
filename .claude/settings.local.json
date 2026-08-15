@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"D:\\\\download\\\\my_python_files\\\\强化学习vibe实践项目\\\\灰烬-启程\\\\tools\" -File | Select-Object Name; Write-Output \"--- godot on PATH ---\"; $g = Get-Command godot -ErrorAction SilentlyContinue; if \\($g\\) { $g.Source } else { \"not on PATH\" })",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Select-String -Path \"D:\\\\download\\\\my_python_files\\\\强化学习vibe实践项目\\\\灰烬-启程\\\\assets\\\\animations\\\\shared_animations.tres\" -Pattern '^_data|^\"' | Select-Object -First 5; \"--- anim name keys ---\"; Select-String -Path \"D:\\\\download\\\\my_python_files\\\\强化学习vibe实践项目\\\\灰烬-启程\\\\assets\\\\animations\\\\shared_animations.tres\" -Pattern '&\"\\([^\"]+\\)\"' -AllMatches | ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)",
+      "WebFetch(domain:docs.godotengine.org)",
+      "PowerShell($g = \"D:\\\\download\\\\Godot_v4.7.1-stable_win64.exe\\\\Godot_v4.7.1-stable_win64_console.exe\"; & $g --headless --path . --import 2>&1 | Select-Object -Last 25; \"exit=$LASTEXITCODE\")"
+    ]
+  }
+}

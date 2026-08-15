@@ -1,0 +1,72 @@
+{
+	"version": 1,
+	"note": "所有武器的基线配置。武器自己的文件只写要覆盖的字段，其余从这里继承（grip/stance 逐键合并，actions/entries 整份替换）。rot_deg 的 -90 是把刃从拇指侧送出去的那个四分之一圈，见 scripts/weapon_config.gd 的 DEFAULT_ROLL_DEG。窗口单位是秒。stance.idle_clip 同时也是静止时混合空间的 idle 极点，所以站姿管得到腿；walk_clip/run_clip 留空则移动时沿用空手的 walk/sprint。",
+	"grip": {
+		"offset": [0.0, 0.0, 0.0],
+		"rot_deg": [0.0, 0.0, -90.0],
+		"scale": 1.0,
+		"flip": false,
+		"socket": "right_hand"
+	},
+	"stance": {
+		"idle_clip": "sword_idle",
+		"blend": 1.0,
+		"filter_bone": "Spine",
+		"walk_clip": "",
+		"run_clip": ""
+	},
+	"entries": [
+		{
+			"trigger": "attack",
+			"to": "slash_1"
+		},
+		{
+			"trigger": "heavy",
+			"to": "heavy_1"
+		}
+	],
+	"actions": [
+		{
+			"id": "slash_1",
+			"clip": "sword_attack",
+			"rate": 1.0,
+			"flatten": "GROUND",
+			"duration": 0.0,
+			"lock_move": true,
+			"dash_distance": 0.0,
+			"dash_time": 0.06,
+			"links": [
+				{
+					"trigger": "attack",
+					"window": [0.3, 1.2],
+					"buffer": true,
+					"to": "slash_1"
+				},
+				{
+					"trigger": "heavy",
+					"window": [0.3, 1.2],
+					"buffer": true,
+					"to": "heavy_1"
+				}
+			]
+		},
+		{
+			"id": "heavy_1",
+			"clip": "sword_attack",
+			"rate": 0.7,
+			"flatten": "GROUND",
+			"duration": 0.0,
+			"lock_move": true,
+			"dash_distance": 2.6,
+			"dash_time": 0.07,
+			"links": [
+				{
+					"trigger": "attack",
+					"window": [0.5, 1.8],
+					"buffer": true,
+					"to": "slash_1"
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,11 @@
+# Godot 4+ specific ignores
+.godot/
+/android/
+
+# Temp & logs
+*.log
+*.err
+probe_*.txt
+h.log
+h.err
+scratch/

@@ -1,0 +1,60 @@
+[gd_scene format=3 uid="uid://cgmrpotybtwxu"]
+
+[ext_resource type="Script" uid="uid://hq1vfsuj68ev" path="res://scripts/anim_debug.gd" id="1_g4bug"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_h3d36"]
+sky_top_color = Color(0.28, 0.36, 0.5, 1)
+sky_horizon_color = Color(0.55, 0.58, 0.62, 1)
+ground_bottom_color = Color(0.14, 0.14, 0.16, 1)
+ground_horizon_color = Color(0.55, 0.58, 0.62, 1)
+
+[sub_resource type="Sky" id="Sky_4efxj"]
+sky_material = SubResource("ProceduralSkyMaterial_h3d36")
+
+[sub_resource type="Environment" id="Environment_7ksiy"]
+background_mode = 2
+sky = SubResource("Sky_4efxj")
+ambient_light_source = 3
+ambient_light_energy = 0.6
+tonemap_mode = 2
+ssao_enabled = true
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_uprd2"]
+albedo_color = Color(0.17, 0.18, 0.2, 1)
+roughness = 0.95
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_6x0vg"]
+material = SubResource("StandardMaterial3D_uprd2")
+size = Vector2(24, 24)
+
+[node name="AnimDebug" type="Node3D" unique_id=181477170 node_paths=PackedStringArray("characters_root")]
+script = ExtResource("1_g4bug")
+characters_root = NodePath("Characters")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1094336035]
+environment = SubResource("Environment_7ksiy")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="." unique_id=1593688207]
+transform = Transform3D(0.76604444, 0.49240384, -0.4131759, 0, 0.64278764, 0.76604444, 0.6427876, -0.58682406, 0.4924039, 0, 4, 0)
+light_energy = 2.6
+shadow_enabled = true
+
+[node name="FillLight" type="DirectionalLight3D" parent="." unique_id=1487106573]
+transform = Transform3D(-0.76604444, -0.21984631, 0.6040228, 0, 0.9396926, 0.34202012, -0.64278764, 0.26200262, -0.7198463, 0, 4, 0)
+light_energy = 0.6
+
+[node name="Ground" type="MeshInstance3D" parent="." unique_id=2092820189]
+transform = Transform3D(1, 0, 0, 0, 0.9998778, -0.015631191, 0, 0.015631191, 0.9998778, 5.00679e-05, -0.083037555, -2.0212126)
+mesh = SubResource("PlaneMesh_6x0vg")
+
+[node name="CameraRig" type="Node3D" parent="." unique_id=1313292959]
+transform = Transform3D(0.8525245, 0, 0.52268726, 0, 1, 0, -0.52268726, 0, 0.8525245, 0, 1, 0)
+
+[node name="Pitch" type="Node3D" parent="CameraRig" unique_id=1877375044]
+transform = Transform3D(1, 0, 0, 0, 0.9838437, 0.17902958, 0, -0.17902958, 0.9838437, 0, 0, 0)
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig/Pitch" unique_id=396740107]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3.6)
+fov = 50.0
+
+[node name="Characters" type="Node3D" parent="." unique_id=2127226635]

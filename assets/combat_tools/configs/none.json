@@ -1,0 +1,76 @@
+{
+	"version": 1,
+	"note": "",
+	"grip": {
+		"offset": [
+			0.0,
+			0.0,
+			0.0
+		],
+		"rot_deg": [
+			0.0,
+			0.0,
+			-90.0
+		],
+		"scale": 1.0,
+		"flip": false,
+		"socket": "right_hand"
+	},
+	"stance": {
+		"idle_clip": "sword_idle",
+		"blend": 1.0,
+		"filter_bone": "Spine",
+		"walk_clip": "",
+		"run_clip": ""
+	},
+	"trail": {
+		"enabled": false,
+		"base": 0.34,
+		"tip": 0.35,
+		"hue": 208.0,
+		"hue_spread": 44.0,
+		"energy": 2.5,
+		"life": 0.22,
+		"width": 0.9,
+		"particles": 1.0,
+		"light": 0.1,
+		"min_speed": 2.0,
+		"blend_mode": "add",
+		"fade_exponent": 1.8,
+		"ghost_density": 0.0,
+		"texture_mode": "none"
+	},
+	"entries": [
+		{
+			"trigger": "attack",
+			"to": "slash_1"
+		}
+	],
+	"actions": [
+		{
+			"id": "slash_1",
+			"clip": "boxing",
+			"rate": 1.95,
+			"flatten": "GROUND",
+			"duration": 0.0,
+			"lock_move": false,
+			"dash_distance": 1.0,
+			"trail": true,
+			"trail_window": [
+				0.0,
+				0.0
+			],
+			"links": [
+				{
+					"trigger": "attack",
+					"window": [
+						0.8,
+						1.2
+					],
+					"buffer": true,
+					"to": "slash_1"
+				}
+			]
+		}
+	]
+}

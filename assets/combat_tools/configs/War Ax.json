@@ -1,0 +1,52 @@
+{
+	"version": 1,
+	"note": "",
+	"grip": {
+		"offset": [
+			-0.03,
+			0.055,
+			0.0
+		],
+		"rot_deg": [
+			0.0,
+			-6.0,
+			-78.0
+		],
+		"scale": 0.505,
+		"flip": false,
+		"socket": "right_hand"
+	},
+	"stance": {
+		"idle_clip": "idle",
+		"blend": 1.0,
+		"filter_bone": "Spine"
+	},
+	"entries": [
+		{
+			"trigger": "attack",
+			"to": "slash_1"
+		}
+	],
+	"actions": [
+		{
+			"id": "slash_1",
+			"clip": "sword_attack",
+			"rate": 1.0,
+			"flatten": "GROUND",
+			"duration": 0.0,
+			"lock_move": true,
+			"slide_speed": 0.0,
+			"links": [
+				{
+					"trigger": "attack",
+					"window": [
+						0.3,
+						1.2
+					],
+					"buffer": true,
+					"to": "slash_1"
+				}
+			]
+		}
+	]
+}

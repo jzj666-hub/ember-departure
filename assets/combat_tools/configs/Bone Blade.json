@@ -1,0 +1,96 @@
+{
+	"version": 1,
+	"note": "",
+	"grip": {
+		"offset": [
+			-0.03,
+			0.062,
+			-0.011
+		],
+		"rot_deg": [
+			-180.0,
+			-13.0,
+			-113.0
+		],
+		"scale": 0.505,
+		"flip": true,
+		"socket": "right_hand"
+	},
+	"stance": {
+		"idle_clip": "idle",
+		"blend": 1.0,
+		"filter_bone": "Spine",
+		"walk_clip": "",
+		"run_clip": ""
+	},
+	"entries": [
+		{
+			"trigger": "attack",
+			"to": "slash_1"
+		}
+	],
+	"actions": [
+		{
+			"id": "slash_1",
+			"clip": "sword_attack",
+			"rate": 1.5,
+			"flatten": "GROUND",
+			"duration": 0.6,
+			"lock_move": false,
+			"dash_distance": 0.0,
+			"dash_time": 0.06,
+			"links": [
+				{
+					"trigger": "attack",
+					"window": [
+						0.8,
+						1.1
+					],
+					"buffer": false,
+					"to": "slash_1"
+				},
+				{
+					"trigger": "heavy",
+					"window": [
+						0.4,
+						1.2
+					],
+					"buffer": true,
+					"to": "action_2"
+				}
+			]
+		},
+		{
+			"id": "action_2",
+			"clip": "sword_regular_b",
+			"rate": 1.0,
+			"flatten": "GROUND",
+			"duration": 0.0,
+			"lock_move": true,
+			"dash_distance": 0.0,
+			"dash_time": 0.06,
+			"links": [
+				{
+					"trigger": "heavy",
+					"window": [
+						0.4,
+						1.5
+					],
+					"buffer": true,
+					"to": "action_3"
+				}
+			]
+		},
+		{
+			"id": "action_3",
+			"clip": "sword_regular_combo",
+			"rate": 1.0,
+			"flatten": "GROUND",
+			"duration": 0.0,
+			"lock_move": true,
+			"dash_distance": 0.0,
+			"dash_time": 0.06,
+			"links": []
+		}
+	]
+}
