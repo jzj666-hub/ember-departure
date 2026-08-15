@@ -778,12 +778,19 @@ func find_path(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 	var simplified_indices := _simplify(cells, raw)
 	for k_idx in range(simplified_indices.size()):
 		var k: int = simplified_indices[k_idx]
-		points.append(foot(cells[k]))
+		var pt := foot(cells[k])
 		moves.append(raw[k])
 		if raw[k] == Move.SPECIAL_JUMP and k > 0:
 			var sp_data := get_special_path_between(cells[k - 1], cells[k])
 			if not sp_data.is_empty():
 				special_links[k_idx] = sp_data
+				var to_pos_arr: Array = sp_data.get("takeoff_pos", [])
+				var land_pos_arr: Array = sp_data.get("landing_pos", [])
+				if to_pos_arr.size() >= 3 and points.size() > 0:
+					points[points.size() - 1] = Vector3(float(to_pos_arr[0]), float(to_pos_arr[1]), float(to_pos_arr[2]))
+				if land_pos_arr.size() >= 3:
+					pt = Vector3(float(land_pos_arr[0]), float(land_pos_arr[1]), float(land_pos_arr[2]))
+		points.append(pt)
 
 	# The exact target only replaces the last waypoint when it lies inside that
 	# waypoint's own cell. Snapping to a goal outside it - a point on a wall
