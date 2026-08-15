@@ -682,16 +682,33 @@ func _remove_block_at(grid_pos: Vector3i) -> void:
 		return
 
 	var inst: BlockRegistry.BlockInstance = _blocks[b_id]
-	for cell in inst.get_occupied_cells():
+	var occupied := inst.get_occupied_cells()
+	for cell in occupied:
 		_cell_to_block_id.erase(cell)
 		_nav.set_block(cell, false)
+
+	# Clean up any special paths that attached to the removed block
+	var removed_sp := 0
+	var paths := _nav.get_special_paths().duplicate()
+	for p in paths:
+		var from_c: Vector3i = NavGrid._parse_coord(p.get("from"))
+		var to_c: Vector3i = NavGrid._parse_coord(p.get("to"))
+		var from_under := from_c + Vector3i(0, -1, 0)
+		var to_under := to_c + Vector3i(0, -1, 0)
+		if occupied.has(from_under) or occupied.has(to_under) or occupied.has(from_c) or occupied.has(to_c):
+			_nav.remove_special_path(str(p.get("id", "")))
+			removed_sp += 1
 
 	if inst.body_node != null:
 		inst.body_node.queue_free()
 	_blocks.erase(b_id)
 
 	_redraw_special_paths()
-	_set_status("已删除方块 %s" % b_id)
+	_refresh_special_paths_ui()
+	if removed_sp > 0:
+		_set_status("已删除方块 %s，并自动清除了 %d 条关联特殊路径" % [b_id, removed_sp])
+	else:
+		_set_status("已删除方块 %s" % b_id)
 
 
 func _clear_all_blocks() -> void:
@@ -1156,34 +1173,63 @@ func _refresh_special_paths_ui() -> void:
 		_special_path_list_box.add_child(empty_lbl)
 		return
 
-	for p in paths:
-		var p_dict: Dictionary = p
+	if paths.size() > 1:
+		var clear_all_btn := Button.new()
+		clear_all_btn.text = "清空全部特殊路径"
+		clear_all_btn.add_theme_font_size_override("font_size", 10)
+		clear_all_btn.modulate = Color(1.0, 0.6, 0.6)
+		clear_all_btn.pressed.connect(func() -> void:
+			_nav.clear_special_paths()
+			_redraw_special_paths()
+			_refresh_special_paths_ui()
+			_set_status("已清空所有特殊路径")
+		)
+		_special_path_list_box.add_child(clear_all_btn)
+
+	for idx in range(paths.size()):
+		var p_dict: Dictionary = paths[idx]
 		var path_id: String = str(p_dict.get("id", ""))
 		var from_arr: Array = p_dict.get("from", [0,0,0])
 		var to_arr: Array = p_dict.get("to", [0,0,0])
+		var span_len: float = float(p_dict.get("span_distance", 0.0))
+		var runup_dist: float = float(p_dict.get("runup_distance", 0.0))
+		var max_dev: float = float(p_dict.get("max_deviation", 0.0))
 
 		var card := PanelContainer.new()
 		var card_style := StyleBoxFlat.new()
-		card_style.bg_color = Color(0.18, 0.20, 0.25, 0.9)
-		card_style.set_content_margin_all(6)
+		card_style.bg_color = Color(0.16, 0.18, 0.22, 0.95)
+		card_style.border_color = Color(0.3, 0.35, 0.45, 0.8)
+		card_style.set_border_width_all(1)
+		card_style.set_content_margin_all(8)
 		card.add_theme_stylebox_override("panel", card_style)
 
 		var card_vbox := VBoxContainer.new()
+		card_vbox.add_theme_constant_override("separation", 4)
 		card.add_child(card_vbox)
 
 		var lbl := Label.new()
-		lbl.text = "路径 (%d,%d,%d) -> (%d,%d,%d)" % [
+		lbl.text = "路径 #%d: (%d,%d,%d) -> (%d,%d,%d)" % [
+			idx + 1,
 			from_arr[0], from_arr[1], from_arr[2],
 			to_arr[0], to_arr[1], to_arr[2]
 		]
 		lbl.add_theme_font_size_override("font_size", 11)
+		lbl.modulate = Color(0.8, 0.95, 1.0)
 		card_vbox.add_child(lbl)
 
+		var detail_lbl := Label.new()
+		detail_lbl.text = "跨度: %.1fm | 助跑: %.1fm | 偏离: %.3fm" % [span_len, runup_dist, max_dev]
+		detail_lbl.add_theme_font_size_override("font_size", 10)
+		detail_lbl.modulate = Color(1.0, 1.0, 1.0, 0.6)
+		card_vbox.add_child(detail_lbl)
+
 		var btns := HBoxContainer.new()
+		btns.add_theme_constant_override("separation", 4)
 		card_vbox.add_child(btns)
 
 		var test_btn := Button.new()
 		test_btn.text = "NPC测试"
+		test_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		test_btn.add_theme_font_size_override("font_size", 10)
 		test_btn.pressed.connect(func() -> void:
 			var target_pos := NavGrid.foot(Vector3i(to_arr[0], to_arr[1], to_arr[2]))
@@ -1191,18 +1237,41 @@ func _refresh_special_paths_ui() -> void:
 		)
 		btns.add_child(test_btn)
 
+		var focus_btn := Button.new()
+		focus_btn.text = "定位"
+		focus_btn.add_theme_font_size_override("font_size", 10)
+		focus_btn.pressed.connect(func() -> void:
+			_focus_special_path(p_dict)
+		)
+		btns.add_child(focus_btn)
+
 		var del_btn := Button.new()
 		del_btn.text = "删除"
+		del_btn.modulate = Color(1.0, 0.45, 0.45)
 		del_btn.add_theme_font_size_override("font_size", 10)
 		del_btn.pressed.connect(func() -> void:
 			_nav.remove_special_path(path_id)
 			_redraw_special_paths()
 			_refresh_special_paths_ui()
-			_set_status("已删除特殊路径 %s" % path_id)
+			_set_status("已删除特殊路径 #%d [%s]" % [idx + 1, path_id])
 		)
 		btns.add_child(del_btn)
 
 		_special_path_list_box.add_child(card)
+
+
+func _focus_special_path(p_dict: Dictionary) -> void:
+	var from_arr: Array = p_dict.get("from", [0,0,0])
+	var to_arr: Array = p_dict.get("to", [0,0,0])
+	var p_from := Vector3(float(from_arr[0]) + 0.5, float(from_arr[1]), float(from_arr[2]) + 0.5)
+	var p_to := Vector3(float(to_arr[0]) + 0.5, float(to_arr[1]), float(to_arr[2]) + 0.5)
+	var mid := (p_from + p_to) * 0.5
+	if _builder_camera != null:
+		_builder_camera.global_position = mid + Vector3(0.0, 3.5, 5.0)
+	_cam_pitch = -0.5
+	_cam_yaw = atan2(p_to.x - p_from.x, p_to.z - p_from.z) + PI
+	_apply_builder_orientation()
+	_set_status("已将摄像机视角聚焦至特殊路径")
 
 
 # --- Save/Load Dialog Modal -------------------------------------------------
