@@ -14,7 +14,7 @@ enum State {
 	COMPLETED
 }
 
-## Maximum lateral deviation in metres allowed during airborne flight for a straight jump.
+## Maximum lateral deviation in metres allowed during run-up and flight for a straight jump.
 const STRAIGHT_LINE_TOLERANCE := 0.18
 ## Maximum stationary velocity threshold at takeoff point.
 const REST_SPEED_THRESHOLD := 0.15
@@ -69,6 +69,7 @@ func _reset() -> void:
 	_trajectory_samples.clear()
 	_timer = 0.0
 	_rest_timer = 0.0
+	_start_pos = Vector3.ZERO
 	_takeoff_pos = Vector3.ZERO
 	_takeoff_vel = Vector3.ZERO
 	_takeoff_speed = 0.0
@@ -95,26 +96,41 @@ func update_frame(body: CharacterBody3D, delta: float) -> void:
 					if _nav_grid != null:
 						_start_cell = _nav_grid.standing_node(pos)
 					_state = State.ARMED_READY_TO_JUMP
-					state_changed.emit(_state, "已就绪！请向目标格直线起跑并起跳")
+					_trajectory_samples.clear()
+					_timer = 0.0
+					_trajectory_samples.append({
+						"t": 0.0,
+						"p": [pos.x, pos.y, pos.z],
+						"v": [vel.x, vel.y, vel.z],
+						"phase": "rest",
+					})
+					state_changed.emit(_state, "已锁定起点！请直线助跑起跑并起跳")
 			else:
 				_rest_timer = 0.0
 
 		State.ARMED_READY_TO_JUMP:
-			if not grounded:
+			if grounded:
+				if horiz_speed > 0.1:
+					_timer += delta
+					_trajectory_samples.append({
+						"t": _timer,
+						"p": [pos.x, pos.y, pos.z],
+						"v": [vel.x, vel.y, vel.z],
+						"phase": "runup",
+					})
+			else:
 				_state = State.AIRBORNE_RECORDING
 				_takeoff_pos = pos
 				_takeoff_vel = vel
 				_takeoff_speed = horiz_speed
-				_timer = 0.0
-				_trajectory_samples.clear()
+				_timer += delta
 				_trajectory_samples.append({
-					"t": 0.0,
+					"t": _timer,
 					"p": [pos.x, pos.y, pos.z],
 					"v": [vel.x, vel.y, vel.z],
+					"phase": "airborne",
 				})
 				state_changed.emit(_state, "空中飞行中... 记录直线轨迹")
-			elif horiz_speed > 0.1:
-				_start_pos = pos
 
 		State.AIRBORNE_RECORDING:
 			_timer += delta
@@ -122,6 +138,7 @@ func update_frame(body: CharacterBody3D, delta: float) -> void:
 				"t": _timer,
 				"p": [pos.x, pos.y, pos.z],
 				"v": [vel.x, vel.y, vel.z],
+				"phase": "airborne",
 			})
 
 			if grounded and _timer >= 0.08:
@@ -130,10 +147,12 @@ func update_frame(body: CharacterBody3D, delta: float) -> void:
 
 
 func _finalize_recording() -> void:
+	var start_2d := Vector2(_start_pos.x, _start_pos.z)
 	var takeoff_2d := Vector2(_takeoff_pos.x, _takeoff_pos.z)
 	var landing_2d := Vector2(_landing_pos.x, _landing_pos.z)
 	var span_vec := landing_2d - takeoff_2d
 	var span_length := span_vec.length()
+	var runup_dist := (takeoff_2d - start_2d).length()
 
 	if span_length < MIN_JUMP_DISTANCE:
 		_state = State.IDLE
@@ -142,18 +161,24 @@ func _finalize_recording() -> void:
 		state_changed.emit(_state, msg)
 		return
 
-	# Validate straight line geometric constraint across all airborne samples
+	# Validate straight line geometric constraint across all samples (runup + airborne)
+	var total_span_vec := landing_2d - start_2d
+	var total_len := total_span_vec.length()
+	var line_a := start_2d if total_len >= span_length else takeoff_2d
+	var line_b := landing_2d
+	var effective_len := (line_b - line_a).length()
+
 	var max_deviation := 0.0
 	for sample in _trajectory_samples:
 		var p_arr: Array = sample["p"]
 		var pt := Vector2(float(p_arr[0]), float(p_arr[2]))
-		var dev := _point_to_line_dist(pt, takeoff_2d, landing_2d, span_length)
+		var dev := _point_to_line_dist(pt, line_a, line_b, effective_len)
 		if dev > max_deviation:
 			max_deviation = dev
 
 	if max_deviation > STRAIGHT_LINE_TOLERANCE:
 		_state = State.IDLE
-		var msg := "录制失败：空中偏离直线 %.2f 米 (最大容差 %.2f 米)，必须保持直线跳跃！" % [
+		var msg := "录制失败：轨迹偏离直线 %.2f 米 (最大容差 %.2f 米)，助跑和跳跃必须保持直线！" % [
 			max_deviation, STRAIGHT_LINE_TOLERANCE]
 		recording_failed.emit(msg)
 		state_changed.emit(_state, msg)
@@ -161,7 +186,9 @@ func _finalize_recording() -> void:
 
 	if _nav_grid != null:
 		if _start_cell == NavGrid.NO_CELL:
-			_start_cell = _nav_grid.standing_node(_takeoff_pos)
+			_start_cell = _nav_grid.standing_node(_start_pos)
+			if _start_cell == NavGrid.NO_CELL:
+				_start_cell = _nav_grid.standing_node(_takeoff_pos)
 		_target_cell = _nav_grid.standing_node(_landing_pos)
 
 	if _start_cell == NavGrid.NO_CELL or _target_cell == NavGrid.NO_CELL:
@@ -188,7 +215,9 @@ func _finalize_recording() -> void:
 		"straight_line": true,
 		"max_deviation": max_deviation,
 		"span_distance": span_length,
+		"runup_distance": runup_dist,
 		"duration": _timer,
+		"start_pos": [_start_pos.x, _start_pos.y, _start_pos.z],
 		"takeoff_pos": [_takeoff_pos.x, _takeoff_pos.y, _takeoff_pos.z],
 		"takeoff_speed": _takeoff_speed,
 		"takeoff_velocity": [_takeoff_vel.x, _takeoff_vel.y, _takeoff_vel.z],
@@ -199,9 +228,10 @@ func _finalize_recording() -> void:
 
 	_state = State.COMPLETED
 	path_recorded.emit(record)
-	state_changed.emit(_state, "成功录制特殊跳跃！起点 (%d,%d,%d) -> 终点 (%d,%d,%d) · 偏离 %.3fm" % [
+	state_changed.emit(_state, "成功录制特殊跳跃！起点 (%d,%d,%d) -> 终点 (%d,%d,%d) · 助跑 %.2fm · 偏离 %.3fm" % [
 		_start_cell.x, _start_cell.y, _start_cell.z,
 		_target_cell.x, _target_cell.y, _target_cell.z,
+		runup_dist,
 		max_deviation
 	])
 
@@ -212,3 +242,4 @@ static func _point_to_line_dist(pt: Vector2, a: Vector2, b: Vector2, line_len: f
 	# Perpendicular distance formula |(by-ay)x - (bx-ax)y + bx*ay - by*ax| / line_len
 	var numerator := absf((b.y - a.y) * pt.x - (b.x - a.x) * pt.y + b.x * a.y - b.y * a.x)
 	return numerator / line_len
+

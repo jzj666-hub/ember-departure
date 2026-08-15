@@ -793,16 +793,21 @@ func find_path(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 			var prev_c := cells[k - 1]
 			var sp_data := get_special_path_between(prev_c, c)
 			if not sp_data.is_empty() and sp_data.has("takeoff_pos") and sp_data.has("landing_pos"):
+				var s_pos: Vector3 = _parse_vec3(sp_data["start_pos"]) if sp_data.has("start_pos") else foot(prev_c)
 				var t_pos := _parse_vec3(sp_data["takeoff_pos"])
 				var l_pos := _parse_vec3(sp_data["landing_pos"])
-				# Approach waypoint: exact user takeoff position
+				# 1. Run-up start waypoint (where user rested and began acceleration)
+				if s_pos.distance_to(t_pos) > 0.3:
+					points.append(s_pos)
+					moves.append(Move.WALK)
+				# 2. Takeoff waypoint: exact user takeoff position
 				points.append(t_pos)
 				moves.append(Move.WALK)
-				# Jump waypoint: exact user landing position
+				# 3. Jump waypoint: exact user landing position
 				points.append(l_pos)
 				moves.append(Move.SPECIAL_JUMP)
 				special_links[points.size() - 1] = sp_data
-				# Continue to destination cell foot
+				# 4. Continue to destination cell foot
 				points.append(foot(c))
 				moves.append(Move.WALK)
 				continue
