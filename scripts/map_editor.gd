@@ -429,7 +429,7 @@ func _set_mode(new_mode: int) -> void:
 			_builder_camera.current = true
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 			_mode_label.text = "模式: 【自由建造】 (按 TAB 试玩, 按 R 录制特殊跳跃, 按住 ALT 解锁鼠标)"
-			_set_status("准星瞄准：左键放置，右键删除，中键指定NPC寻路测试")
+			_set_status("准星瞄准：左键放置，右键删除，Shift+左键/中键 指定人机寻路测试")
 		EditorMode.PLAY_TEST:
 			_npc.intent_source = _player_intent_source
 			_follow_camera.current = true
@@ -529,7 +529,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			match event.button_index:
 				MOUSE_BUTTON_LEFT:
 					if _has_aim:
-						_place_block_at(_aim_empty)
+						if event.shift_pressed or Input.is_physical_key_pressed(KEY_SHIFT) or Input.is_key_pressed(KEY_SHIFT):
+							_recalculate_npc_path(_aim_point)
+						else:
+							_place_block_at(_aim_empty)
 						get_viewport().set_input_as_handled()
 				MOUSE_BUTTON_RIGHT:
 					if _has_aim:
