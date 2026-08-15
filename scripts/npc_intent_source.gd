@@ -783,15 +783,17 @@ func _leg_is_gap_jump(idx: int) -> bool:
 	# Waypoints in touching cells are a step, whatever the plan calls them.
 	if Vector2(b.x - a.x, b.z - a.z).length() < 1.2:
 		return false
-	if idx < _moves.size() and _moves[idx] == NavGrid.Move.JUMP:
+	if idx < _moves.size() and (_moves[idx] == NavGrid.Move.JUMP or _moves[idx] == NavGrid.Move.SPECIAL_JUMP):
 		return true
 	return _void_between(a, b)
 
 
-## Leg `idx` spans an extreme void (4-cell flat/down void, 3-cell void up 1 block, or offset jumps).
+## Leg `idx` spans an extreme void (4-cell flat/down void, 3-cell void up 1 block, or offset jumps, or special jump).
 func _is_extreme_gap_jump(idx: int) -> bool:
 	if idx <= 0 or idx >= _path.size():
 		return false
+	if idx < _moves.size() and _moves[idx] == NavGrid.Move.SPECIAL_JUMP:
+		return true
 	var a := _path[idx - 1]
 	var b := _path[idx]
 	var horiz_dist := Vector2(b.x - a.x, b.z - a.z).length()

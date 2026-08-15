@@ -15,7 +15,7 @@ signal grid_changed()
 ## - all edges are directed: rise and drop rules are not symmetric
 
 ## How a leg of a path is travelled. BUILD is reserved for the block-placing bot.
-enum Move { WALK, CLIMB, JUMP, DROP, BUILD }
+enum Move { WALK, CLIMB, JUMP, DROP, BUILD, SPECIAL_JUMP }
 
 const NO_CELL := Vector3i(-32768, -32768, -32768)
 ## Clearance a jump must keep under its own apex before a ledge counts as
@@ -238,6 +238,7 @@ var _columns := {}
 ## Scratch for _gap_clear()'s duplicate-column filter. Cleared per call, never
 ## read outside it.
 var _span_seen := {}
+var _special_paths: Array = []
 
 var _half := 20
 var _max_y := 8
@@ -246,6 +247,62 @@ var _dirty := true
 
 
 # --- configuration ----------------------------------------------------------
+
+## Registers a custom recorded special jump connection between two cells.
+func add_special_path(path_dict: Dictionary) -> void:
+	_special_paths.append(path_dict)
+	_dirty = true
+	grid_changed.emit()
+
+
+## Removes recorded special path by its id.
+func remove_special_path(path_id: String) -> void:
+	for i in range(_special_paths.size() - 1, -1, -1):
+		if str(_special_paths[i].get("id", "")) == path_id:
+			_special_paths.remove_at(i)
+			_dirty = true
+			grid_changed.emit()
+			return
+
+
+## Clears all recorded special paths.
+func clear_special_paths() -> void:
+	_special_paths.clear()
+	_dirty = true
+	grid_changed.emit()
+
+
+## Sets complete array of special paths.
+func set_special_paths(paths: Array) -> void:
+	_special_paths = paths.duplicate(true)
+	_dirty = true
+	grid_changed.emit()
+
+
+## Returns array of registered special paths.
+func get_special_paths() -> Array:
+	return _special_paths
+
+
+## Finds special path matching from_cell -> to_cell.
+func get_special_path_between(from_cell: Vector3i, to_cell: Vector3i) -> Dictionary:
+	for p in _special_paths:
+		var f := _parse_coord(p.get("from"))
+		var t := _parse_coord(p.get("to"))
+		if f == from_cell and t == to_cell:
+			return p
+	return {}
+
+
+static func _parse_coord(v: Variant) -> Vector3i:
+	if v is Vector3i:
+		return v
+	if v is Vector3:
+		return Vector3i(int(floor(v.x)), int(round(v.y)), int(floor(v.z)))
+	if v is Array and v.size() >= 3:
+		return Vector3i(int(v[0]), int(v[1]), int(v[2]))
+	return NO_CELL
+
 
 ## Playable cell range: x,z in [-half, half), y in [0, max_y]. Marks dirty.
 func set_bounds(half: int, max_y: int) -> void:
@@ -468,6 +525,13 @@ func _connect() -> void:
 			for d in DIR_DIAG:
 				_connect_diag(here, d, ring)
 			_connect_gaps(here, ring)
+
+	# Connect recorded special paths
+	for p in _special_paths:
+		var from_c := _parse_coord(p.get("from"))
+		var to_c := _parse_coord(p.get("to"))
+		if _nodes.has(from_c) and _nodes.has(to_c):
+			_astar.connect_points(_nodes[from_c], _nodes[to_c], false)
 
 
 ## Links `here` to every level of the neighbouring column the body could reach.
@@ -710,9 +774,16 @@ func find_path(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 
 	var points := PackedVector3Array()
 	var moves := PackedInt32Array()
-	for k in _simplify(cells):
+	var special_links := {}
+	var simplified_indices := _simplify(cells, raw)
+	for k_idx in range(simplified_indices.size()):
+		var k: int = simplified_indices[k_idx]
 		points.append(foot(cells[k]))
 		moves.append(raw[k])
+		if raw[k] == Move.SPECIAL_JUMP and k > 0:
+			var sp_data := get_special_path_between(cells[k - 1], cells[k])
+			if not sp_data.is_empty():
+				special_links[k_idx] = sp_data
 
 	# The exact target only replaces the last waypoint when it lies inside that
 	# waypoint's own cell. Snapping to a goal outside it - a point on a wall
@@ -723,6 +794,7 @@ func find_path(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 
 	out.points = points
 	out.moves = moves
+	out.special_links = special_links
 	out.complete = complete
 	out.reachable = last
 	return out
@@ -734,6 +806,8 @@ func find_path(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 ## edges only exist because _connect_gaps() found an arc for them, and the
 ## executor has to know it is flying rather than walking off a ledge.
 func _classify(from_cell: Vector3i, to_cell: Vector3i) -> int:
+	if not get_special_path_between(from_cell, to_cell).is_empty():
+		return Move.SPECIAL_JUMP
 	if absi(to_cell.x - from_cell.x) > 1 or absi(to_cell.z - from_cell.z) > 1:
 		return Move.JUMP
 	var dh := float(to_cell.y - from_cell.y)
@@ -770,7 +844,7 @@ func _closest_reachable(start_id: int, goal_pos: Vector3) -> int:
 ## Indices of the waypoints a straight run cannot absorb. Grid paths staircase
 ## around diagonals; every retained corner is one more chance to graze a block
 ## edge. Pre: cells non-empty. Post: the first and last indices survive.
-func _simplify(cells: Array[Vector3i]) -> PackedInt32Array:
+func _simplify(cells: Array[Vector3i], raw_moves := PackedInt32Array()) -> PackedInt32Array:
 	var kept := PackedInt32Array([0])
 	if cells.size() <= 2:
 		if cells.size() == 2:
@@ -778,8 +852,12 @@ func _simplify(cells: Array[Vector3i]) -> PackedInt32Array:
 		return kept
 	var anchor := 0
 	for i in range(1, cells.size() - 1):
+		var is_special := false
+		if raw_moves.size() > i + 1:
+			if raw_moves[i] == Move.SPECIAL_JUMP or raw_moves[i + 1] == Move.SPECIAL_JUMP:
+				is_special = true
 		var flat: bool = cells[anchor].y == cells[i].y and cells[i].y == cells[i + 1].y
-		if flat and _line_walkable(cells[anchor], cells[i + 1]):
+		if not is_special and flat and _line_walkable(cells[anchor], cells[i + 1]):
 			continue
 		kept.append(i)
 		anchor = i
@@ -831,6 +909,8 @@ func is_path_valid(points: PackedVector3Array, start_index := 0) -> bool:
 		var c2 := Vector3i(int(floor(p2.x)), int(round(p2.y)), int(floor(p2.z)))
 		if not _nodes.has(c1) or not _nodes.has(c2):
 			return false
+		if not get_special_path_between(c1, c2).is_empty() and _astar.are_points_connected(_nodes[c1], _nodes[c2], false):
+			continue
 		if c1.y == c2.y and _line_walkable(c1, c2):
 			continue
 		if not _astar.are_points_connected(_nodes[c1], _nodes[c2], false):

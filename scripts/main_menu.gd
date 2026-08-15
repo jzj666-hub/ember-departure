@@ -22,6 +22,11 @@ const ENTRIES := [
 		"blurb": "第一人称自由飞行搭建：鼠标转视角，准星高亮目标格，左键放置右键拆除，中键指定人机目的地。按 E 寄身操控。寻路按角色真实的跳跃/攀爬能力规划。",
 		"scene": "res://scenes/npc_test.tscn",
 	},
+	{
+		"title": "地图编辑器 / Map Editor",
+		"blurb": "支持多尺寸方块搭建与材质切换、地图新建/存档/加载，支持玩家录制空中直线特殊跳跃轨迹并与NPC寻路无缝集成。",
+		"scene": "res://scenes/map_editor.tscn",
+	},
 ]
 
 
