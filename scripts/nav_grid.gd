@@ -304,6 +304,16 @@ static func _parse_coord(v: Variant) -> Vector3i:
 	return NO_CELL
 
 
+static func _parse_vec3(v: Variant) -> Vector3:
+	if v is Vector3:
+		return v
+	if v is Vector3i:
+		return Vector3(v.x + 0.5, v.y, v.z + 0.5)
+	if v is Array and v.size() >= 3:
+		return Vector3(float(v[0]), float(v[1]), float(v[2]))
+	return Vector3.ZERO
+
+
 ## Playable cell range: x,z in [-half, half), y in [0, max_y]. Marks dirty.
 func set_bounds(half: int, max_y: int) -> void:
 	_half = maxi(1, half)
@@ -778,19 +788,26 @@ func find_path(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 	var simplified_indices := _simplify(cells, raw)
 	for k_idx in range(simplified_indices.size()):
 		var k: int = simplified_indices[k_idx]
-		var pt := foot(cells[k])
-		moves.append(raw[k])
+		var c := cells[k]
 		if raw[k] == Move.SPECIAL_JUMP and k > 0:
-			var sp_data := get_special_path_between(cells[k - 1], cells[k])
-			if not sp_data.is_empty():
-				special_links[k_idx] = sp_data
-				var to_pos_arr: Array = sp_data.get("takeoff_pos", [])
-				var land_pos_arr: Array = sp_data.get("landing_pos", [])
-				if to_pos_arr.size() >= 3 and points.size() > 0:
-					points[points.size() - 1] = Vector3(float(to_pos_arr[0]), float(to_pos_arr[1]), float(to_pos_arr[2]))
-				if land_pos_arr.size() >= 3:
-					pt = Vector3(float(land_pos_arr[0]), float(land_pos_arr[1]), float(land_pos_arr[2]))
-		points.append(pt)
+			var prev_c := cells[k - 1]
+			var sp_data := get_special_path_between(prev_c, c)
+			if not sp_data.is_empty() and sp_data.has("takeoff_pos") and sp_data.has("landing_pos"):
+				var t_pos := _parse_vec3(sp_data["takeoff_pos"])
+				var l_pos := _parse_vec3(sp_data["landing_pos"])
+				# Approach waypoint: exact user takeoff position
+				points.append(t_pos)
+				moves.append(Move.WALK)
+				# Jump waypoint: exact user landing position
+				points.append(l_pos)
+				moves.append(Move.SPECIAL_JUMP)
+				special_links[points.size() - 1] = sp_data
+				# Continue to destination cell foot
+				points.append(foot(c))
+				moves.append(Move.WALK)
+				continue
+		points.append(foot(c))
+		moves.append(raw[k])
 
 	# The exact target only replaces the last waypoint when it lies inside that
 	# waypoint's own cell. Snapping to a goal outside it - a point on a wall
@@ -912,10 +929,12 @@ func is_path_valid(points: PackedVector3Array, start_index := 0) -> bool:
 	for i in range(idx, points.size() - 1):
 		var p1 := points[i]
 		var p2 := points[i + 1]
-		var c1 := Vector3i(int(floor(p1.x)), int(round(p1.y)), int(floor(p1.z)))
-		var c2 := Vector3i(int(floor(p2.x)), int(round(p2.y)), int(floor(p2.z)))
-		if not _nodes.has(c1) or not _nodes.has(c2):
+		var c1 := standing_node(p1)
+		var c2 := standing_node(p2)
+		if c1 == NO_CELL or c2 == NO_CELL:
 			return false
+		if c1 == c2:
+			continue
 		if not get_special_path_between(c1, c2).is_empty() and _astar.are_points_connected(_nodes[c1], _nodes[c2], false):
 			continue
 		if c1.y == c2.y and _line_walkable(c1, c2):

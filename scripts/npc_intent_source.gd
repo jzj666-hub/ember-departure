@@ -20,6 +20,8 @@ signal build_requested(coord: Vector3i)
 var _path := PackedVector3Array()
 ## How each point is reached, as NavGrid.Move. Parallel to _path when present.
 var _moves := PackedInt32Array()
+## Special path data dictionary keyed by path index.
+var _special_links := {}
 var _path_index := 0
 var _target_pos := Vector3.ZERO
 var _has_target := false
@@ -122,7 +124,6 @@ var _jump_start_speed := 0.0
 var _jump_air_time := 0.0
 var _zero_jump_centered := false
 var _is_centering := false
-var _special_links: Dictionary = {}
 
 ## Automated task sequence state.
 var _task_queue: Array = []
@@ -162,7 +163,7 @@ func _deferred_repath() -> void:
 
 ## Set navigation path to target position.
 func set_path(path: PackedVector3Array, target: Vector3) -> void:
-	set_plan(path, PackedInt32Array(), target, true, {})
+	set_plan(path, PackedInt32Array(), target, true)
 
 
 ## Install a NavGrid plan. `moves` may be empty; `complete` false means the path
@@ -624,65 +625,55 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 
 	var is_special: bool = (_path_index < _moves.size() and _moves[_path_index] == NavGrid.Move.SPECIAL_JUMP) or _special_links.has(_path_index)
 	var sp_data: Dictionary = _special_links.get(_path_index, {})
-	if is_special and sp_data.is_empty() and _path_index > 0 and _nav_grid != null:
-		var from_c := _nav_grid.standing_node(_path[_path_index - 1])
-		var to_c := _nav_grid.standing_node(_path[_path_index])
-		sp_data = _nav_grid.get_special_path_between(from_c, to_c)
-
-	var land := _path[_path_index]
-	var start_wp := _path[_path_index - 1] if _path_index > 0 else body_pos
-
-	var takeoff_pos := start_wp
-	var landing_pos := land
-	var rec_duration := 0.85
-
-	if not sp_data.is_empty():
-		is_special = true
-		var t_arr: Array = sp_data.get("takeoff_pos", [])
-		var l_arr: Array = sp_data.get("landing_pos", [])
-		if t_arr.size() >= 3:
-			takeoff_pos = Vector3(float(t_arr[0]), float(t_arr[1]), float(t_arr[2]))
-		if l_arr.size() >= 3:
-			landing_pos = Vector3(float(l_arr[0]), float(l_arr[1]), float(l_arr[2]))
-		rec_duration = float(sp_data.get("duration", 0.85))
 
 	var cap := _nav_grid.capability()
-	var nominal_dh := landing_pos.y - takeoff_pos.y
-	var t: float = cap.flight_time(nominal_dh)
-	if is_nan(t) or t <= 0.0:
-		t = cap.flight_time(landing_pos.y - body_pos.y)
+	var land := _path[_path_index]
+	var start_wp := _path[_path_index - 1] if _path_index > 0 else body_pos
+	var nominal_dh := land.y - start_wp.y
+
+	var t: float = float(sp_data.get("duration", 0.0))
+	if t <= 0.0:
+		t = cap.flight_time(nominal_dh)
+		if is_nan(t) or t <= 0.0:
+			t = cap.flight_time(land.y - body_pos.y)
 	if is_nan(t) or t <= 0.0:
 		if is_special:
-			t = rec_duration
+			t = 0.85
 		else:
 			return false
 
 	if _jump_done_index == _path_index:
 		return false
 
+	var jump_wanted := wanted
+	var jump_horiz := horiz
+
+	if is_special:
+		var flat_dir := Vector3(land.x - start_wp.x, 0.0, land.z - start_wp.z)
+		if flat_dir.length_squared() > 0.001:
+			jump_wanted = flat_dir.normalized()
+			jump_horiz = Vector2(land.x - body_pos.x, land.z - body_pos.z).length()
+
+	var dist_to_start := Vector2(start_wp.x - body_pos.x, start_wp.z - body_pos.z).dot(Vector2(jump_wanted.x, jump_wanted.z))
+
 	if _jump_index != _path_index:
 		_jump_index = _path_index
-		_jump_phase = JumpPhase.CENTER if (_is_extreme_gap_jump(_path_index) or is_special) else JumpPhase.APPROACH
 		_jump_armed = false
 		_jump_backed = false
 		_jump_timer = 0.0
+		if is_special:
+			_jump_phase = JumpPhase.BACK_UP if dist_to_start < 1.0 else JumpPhase.APPROACH
+		else:
+			_jump_phase = JumpPhase.CENTER if _is_extreme_gap_jump(_path_index) else JumpPhase.APPROACH
 	_jump_timer += delta
 
-	var jump_flat := Vector3(landing_pos.x - takeoff_pos.x, 0.0, landing_pos.z - takeoff_pos.z)
-	var jump_dist := jump_flat.length()
-	var jump_wanted := jump_flat.normalized() if jump_dist > 0.001 else wanted
-	var jump_horiz := Vector2(landing_pos.x - body_pos.x, landing_pos.z - body_pos.z).length()
-
 	var center_pt := start_wp
-	if is_special:
-		var back_dist := minf(2.5, maxf(_runway_ahead(takeoff_pos, -jump_wanted) - 0.2, 0.5))
-		center_pt = takeoff_pos - jump_wanted * back_dist
-	elif _nav_grid != null:
+	if _nav_grid != null and not is_special:
 		var node := _nav_grid.standing_node(body_pos)
 		if node != NavGrid.NO_CELL:
 			center_pt = NavGrid.foot(node)
 
-	var is_extreme := _is_extreme_gap_jump(_path_index) or is_special
+	var is_extreme := _is_extreme_gap_jump(_path_index)
 	var is_offset_extreme := _is_offset_extreme_gap_jump(_path_index)
 
 	# Offset jumps: only for Case 3 (3-cell void up 1m with secondary offset).
@@ -705,11 +696,13 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 	var reach := speed * t
 	var runway := _runway_ahead(body_pos, jump_wanted)
 	var wanted_v: float = minf(maxf(jump_horiz - runway, 0.0) / t, _run_speed * RUN_ASYMPTOTE)
+	if is_special:
+		wanted_v = _run_speed
 
 	if _jump_phase == JumpPhase.CENTER:
 		var to_center := Vector3(center_pt.x - body_pos.x, 0.0, center_pt.z - body_pos.z)
 		var dist_to_center := to_center.length()
-		if dist_to_center <= 0.12 or _jump_timer >= 1.0:
+		if dist_to_center <= 0.08 or _jump_timer >= 1.0:
 			_jump_phase = JumpPhase.APPROACH
 			_jump_timer = 0.0
 		else:
@@ -721,7 +714,7 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 
 	if _jump_phase == JumpPhase.BACK_UP:
 		var behind := _runway_ahead(body_pos, -jump_wanted)
-		if runway >= _runup_distance(0.0, wanted_v) + RIM_SLACK \
+		if (is_special and dist_to_start >= 2.0) or (not is_special and runway >= _runup_distance(0.0, wanted_v) + RIM_SLACK) \
 				or behind <= RIM_SLACK or _jump_timer >= JUMP_BACK_UP_MAX:
 			_jump_phase = JumpPhase.APPROACH
 		else:
@@ -736,15 +729,10 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 	var aligned: bool = speed < 0.05 \
 		or travel.normalized().dot(Vector2(jump_wanted.x, jump_wanted.z)) >= JUMP_ALIGN
 	var at_rim: bool = runway <= RIM_SLACK
-
-	var at_special_takeoff := false
-	if is_special:
-		var to_takeoff := Vector3(takeoff_pos.x - body_pos.x, 0.0, takeoff_pos.z - body_pos.z)
-		var dot_to_takeoff: float = to_takeoff.dot(jump_wanted)
-		at_special_takeoff = dot_to_takeoff <= 0.15 or at_rim
+	var at_takeoff_spot: bool = is_special and (dist_to_start <= 0.18 or at_rim)
 
 	# Coyote run: ONLY for extreme jumps that cannot reach from the rim.
-	if not is_special and is_extreme and grounded and at_rim and not (_jump_armed and aligned and reach >= jump_horiz):
+	if is_extreme and grounded and at_rim and not is_special and not (_jump_armed and aligned and reach >= jump_horiz):
 		intent.heading = atan2(jump_wanted.x, jump_wanted.z)
 		intent.move = Vector2(0.0, 1.0)
 		intent.run = true
@@ -769,7 +757,7 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 			intent.run = true
 			return true
 
-	if grounded and ((is_special and at_special_takeoff) or at_rim or (_jump_armed and aligned and reach >= jump_horiz)):
+	if grounded and (at_takeoff_spot or at_rim or (_jump_armed and aligned and reach >= jump_horiz)):
 		request_jump()
 		_coyote_pending = false
 		_coyote_timer = 0.0
@@ -777,11 +765,12 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 		_jump_phase = JumpPhase.AIRBORNE
 		_jump_timer = 0.0
 		intent.heading = atan2(jump_wanted.x, jump_wanted.z)
-		intent.move = Vector2(0.0, 1.0)
-		intent.run = true
+		intent.move = Vector2.ZERO
+		intent.run = false
 		return true
 
-	if grounded and not is_special and not _jump_backed and _jump_timer <= 0.25 \
+	# No room to wind up before the rim: retreat down the jump line first.
+	if grounded and not _jump_backed and _jump_timer <= 0.25 \
 			and _runup_distance(speed, wanted_v) > runway:
 		_jump_backed = true
 		_jump_phase = JumpPhase.BACK_UP
@@ -794,7 +783,6 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 	intent.heading = atan2(jump_wanted.x, jump_wanted.z)
 	intent.move = Vector2(0.0, 1.0)
 	intent.run = true
-	return true
 	# Sprint while the arc still falls short of the waypoint, ease off once it
 	# would overshoot. Easing off is what lets the crossing be met from below: the
 	# chase decelerates far harder than the closing distance shrinks, so an arc

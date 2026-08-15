@@ -138,11 +138,17 @@ func _test_nav_grid_special_path() -> void:
 	nav.set_block(Vector3i(0, 0, 0), true) # solid block at (0,0,0) -> standable cell at (0,1,0)
 	nav.set_block(Vector3i(0, 0, 6), true) # solid block at (0,0,6) -> standable cell at (0,1,6)
 
-	# Now add special path from cell_a to cell_b
+	# Now add special path from cell_a to cell_b with exact takeoff/landing positions
+	var t_pos := Vector3(0.5, 1.0, 0.9)
+	var l_pos := Vector3(0.5, 1.0, 5.7)
 	nav.add_special_path({
 		"id": "special_jump_ab",
 		"from": [cell_a.x, cell_a.y, cell_a.z],
 		"to": [cell_b.x, cell_b.y, cell_b.z],
+		"takeoff_pos": [t_pos.x, t_pos.y, t_pos.z],
+		"landing_pos": [l_pos.x, l_pos.y, l_pos.z],
+		"takeoff_speed": 3.6,
+		"duration": 0.88,
 		"straight_line": true,
 	})
 
@@ -151,11 +157,20 @@ func _test_nav_grid_special_path() -> void:
 
 	var moves: PackedInt32Array = res_special.moves
 	var found_special_move := false
-	for m in moves:
-		if m == NavGrid.Move.SPECIAL_JUMP:
+	var found_takeoff_pt := false
+	var found_landing_pt := false
+	for i in range(res_special.points.size()):
+		var pt: Vector3 = res_special.points[i]
+		if pt.distance_to(t_pos) < 0.01:
+			found_takeoff_pt = true
+		if pt.distance_to(l_pos) < 0.01:
+			found_landing_pt = true
+		if moves[i] == NavGrid.Move.SPECIAL_JUMP:
 			found_special_move = true
-			break
+
 	_ok("Move classified as Move.SPECIAL_JUMP", found_special_move)
+	_ok("Exact takeoff waypoint included", found_takeoff_pt)
+	_ok("Exact landing waypoint included", found_landing_pt)
 
 	var valid := nav.is_path_valid(res_special.points)
 	_ok("Path with special jump is valid", valid)
