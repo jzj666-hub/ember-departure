@@ -184,21 +184,26 @@ func _finalize_recording() -> void:
 		state_changed.emit(_state, msg)
 		return
 
+	var takeoff_cell := NavGrid.NO_CELL
 	if _nav_grid != null:
 		if _start_cell == NavGrid.NO_CELL:
 			_start_cell = _nav_grid.standing_node(_start_pos)
-			if _start_cell == NavGrid.NO_CELL:
-				_start_cell = _nav_grid.standing_node(_takeoff_pos)
+		takeoff_cell = _nav_grid.standing_node(_takeoff_pos)
+		if takeoff_cell == NavGrid.NO_CELL:
+			takeoff_cell = _start_cell
 		_target_cell = _nav_grid.standing_node(_landing_pos)
 
-	if _start_cell == NavGrid.NO_CELL or _target_cell == NavGrid.NO_CELL:
+	if (_start_cell == NavGrid.NO_CELL and takeoff_cell == NavGrid.NO_CELL) or _target_cell == NavGrid.NO_CELL:
 		_state = State.IDLE
 		var msg := "录制失败：起跳点或着陆点不在有效可站立网格内"
 		recording_failed.emit(msg)
 		state_changed.emit(_state, msg)
 		return
 
-	if _start_cell == _target_cell:
+	if _start_cell == NavGrid.NO_CELL:
+		_start_cell = takeoff_cell
+
+	if _start_cell == _target_cell or takeoff_cell == _target_cell:
 		_state = State.IDLE
 		var msg := "录制失败：起点格与终点格相同"
 		recording_failed.emit(msg)
@@ -210,8 +215,9 @@ func _finalize_recording() -> void:
 
 	var record := {
 		"id": path_id,
-		"from": [_start_cell.x, _start_cell.y, _start_cell.z],
+		"from": [takeoff_cell.x, takeoff_cell.y, takeoff_cell.z],
 		"to": [_target_cell.x, _target_cell.y, _target_cell.z],
+		"start_cell": [_start_cell.x, _start_cell.y, _start_cell.z],
 		"straight_line": true,
 		"max_deviation": max_deviation,
 		"span_distance": span_length,

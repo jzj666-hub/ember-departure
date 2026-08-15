@@ -289,8 +289,10 @@ func get_special_path_between(from_cell: Vector3i, to_cell: Vector3i) -> Diction
 	for p in _special_paths:
 		var f := _parse_coord(p.get("from"))
 		var t := _parse_coord(p.get("to"))
-		if f == from_cell and t == to_cell:
-			return p
+		var s := _parse_coord(p.get("start_cell"))
+		if t == to_cell:
+			if f == from_cell or s == from_cell:
+				return p
 	return {}
 
 
@@ -540,8 +542,11 @@ func _connect() -> void:
 	for p in _special_paths:
 		var from_c := _parse_coord(p.get("from"))
 		var to_c := _parse_coord(p.get("to"))
+		var start_c := _parse_coord(p.get("start_cell"))
 		if _nodes.has(from_c) and _nodes.has(to_c):
 			_astar.connect_points(_nodes[from_c], _nodes[to_c], false)
+		if start_c != NO_CELL and _nodes.has(start_c) and _nodes.has(to_c):
+			_astar.connect_points(_nodes[start_c], _nodes[to_c], false)
 
 
 ## Links `here` to every level of the neighbouring column the body could reach.
@@ -792,12 +797,18 @@ func find_path(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 		if raw[k] == Move.SPECIAL_JUMP and k > 0:
 			var prev_c := cells[k - 1]
 			var sp_data := get_special_path_between(prev_c, c)
+			if sp_data.is_empty():
+				for p in _special_paths:
+					var t := _parse_coord(p.get("to"))
+					if t == c:
+						sp_data = p
+						break
 			if not sp_data.is_empty() and sp_data.has("takeoff_pos") and sp_data.has("landing_pos"):
 				var s_pos: Vector3 = _parse_vec3(sp_data["start_pos"]) if sp_data.has("start_pos") else foot(prev_c)
 				var t_pos := _parse_vec3(sp_data["takeoff_pos"])
 				var l_pos := _parse_vec3(sp_data["landing_pos"])
 				# 1. Run-up start waypoint (where user rested and began acceleration)
-				if s_pos.distance_to(t_pos) > 0.3:
+				if s_pos.distance_to(t_pos) > 0.2:
 					points.append(s_pos)
 					moves.append(Move.WALK)
 				# 2. Takeoff waypoint: exact user takeoff position

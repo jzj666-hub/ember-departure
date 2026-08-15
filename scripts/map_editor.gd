@@ -1232,8 +1232,13 @@ func _refresh_special_paths_ui() -> void:
 		test_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		test_btn.add_theme_font_size_override("font_size", 10)
 		test_btn.pressed.connect(func() -> void:
+			var start_arr: Array = p_dict.get("start_pos", [])
+			if start_arr.size() >= 3:
+				_npc.global_position = Vector3(float(start_arr[0]), float(start_arr[1]), float(start_arr[2]))
+				_npc.velocity = Vector3.ZERO
 			var target_pos := NavGrid.foot(Vector3i(to_arr[0], to_arr[1], to_arr[2]))
 			_recalculate_npc_path(target_pos)
+			_set_status("已将 NPC 放置于录制起点并启动测试！")
 		)
 		btns.add_child(test_btn)
 
