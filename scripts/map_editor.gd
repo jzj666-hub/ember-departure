@@ -459,17 +459,24 @@ func _set_status(msg: String) -> void:
 # --- Physics and Process ----------------------------------------------------
 
 func _process(delta: float) -> void:
+	if not is_inside_tree():
+		return
 	if _mode == EditorMode.BUILD and not _cursor_free:
 		_update_builder_flight(delta)
 		_update_targeting()
 
 
 func _physics_process(delta: float) -> void:
+	if not is_inside_tree():
+		return
 	if _recorder.is_recording():
 		_recorder.update_frame(_npc, delta)
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if not is_inside_tree():
+		return
+
 	if event is InputEventKey and not event.echo:
 		if event.keycode == KEY_ALT:
 			_cursor_free = event.pressed
@@ -487,6 +494,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					elif _mode == EditorMode.PLAY_TEST:
 						_set_mode(EditorMode.BUILD)
 					get_viewport().set_input_as_handled()
+					return
 				KEY_R:
 					if _mode == EditorMode.RECORD_SPECIAL_PATH:
 						_recorder.cancel_recording()
@@ -494,6 +502,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					else:
 						_set_mode(EditorMode.RECORD_SPECIAL_PATH)
 					get_viewport().set_input_as_handled()
+					return
 				KEY_ESCAPE:
 					if _save_load_dialog.visible:
 						_save_load_dialog.visible = false
@@ -505,8 +514,9 @@ func _unhandled_input(event: InputEvent) -> void:
 						_set_mode(EditorMode.BUILD)
 						get_viewport().set_input_as_handled()
 						return
+					Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 					get_tree().change_scene_to_file(MENU_SCENE)
-					get_viewport().set_input_as_handled()
+					return
 
 	if _mode == EditorMode.BUILD and not _cursor_free:
 		if event is InputEventMouseMotion:
