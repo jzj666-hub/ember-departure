@@ -32,11 +32,23 @@ var _hint_label: Label
 # Tutorial State
 var _tutorial_active := false
 var _tutorial_step := 0
-var _tutorial_accum_dist := 0.0
 var _tutorial_accum_run := 0.0
-var _camera_toggled_during_step := false
-var _hud_layer: CanvasLayer
+var _step0_w_done := false
+var _step0_a_done := false
+var _step0_s_done := false
+var _step0_d_done := false
+var _step2_has_jumped := false
+var _step2_land_timer := 0.0
+var _step3_climbing_started := false
+var _step4_crouch_timer := 0.0
+var _step6_saw_first_person := false
+var _step6_third_person_stay_timer := 0.0
 
+var _step_transition_active := false
+var _step_transition_timer := 0.0
+var _pending_next_step := 0
+
+var _hud_layer: CanvasLayer
 var _tutorial_banner: PanelContainer
 var _tutorial_banner_style: StyleBoxFlat
 var _tutorial_step_label: Label
@@ -294,11 +306,7 @@ func _build_player() -> void:
 	_camera.fov = 55.0
 	_camera.near = 0.05
 	_camera.current = true
-	_camera.connect("mode_changed", func(_fp: bool) -> void:
-		_refresh_hint()
-		if _tutorial_active and _tutorial_step == 5:
-			_camera_toggled_during_step = true
-	)
+	_camera.connect("mode_changed", func(_fp: bool) -> void: _refresh_hint())
 	add_child(_camera)
 
 	_spawn_character()
@@ -513,7 +521,7 @@ func _rebuild_tutorial_keys(keys: Array[String]) -> void:
 		_tutorial_keys_container.remove_child(child)
 		child.queue_free()
 	for k in keys:
-		if k == "+" or k == "或" or k == "/":
+		if k == "+" or k == "或" or k == "/" or k.begins_with("双击"):
 			var lbl := Label.new()
 			lbl.text = " %s " % k
 			lbl.add_theme_font_size_override("font_size", 16)
@@ -533,54 +541,70 @@ func _rebuild_tutorial_keys(keys: Array[String]) -> void:
 
 func _set_tutorial_step(step: int) -> void:
 	_tutorial_step = step
-	_tutorial_accum_dist = 0.0
 	_tutorial_accum_run = 0.0
-	_camera_toggled_during_step = false
+	_step0_w_done = false
+	_step0_a_done = false
+	_step0_s_done = false
+	_step0_d_done = false
+	_step2_has_jumped = false
+	_step2_land_timer = 0.0
+	_step3_climbing_started = false
+	_step4_crouch_timer = 0.0
+	_step6_saw_first_person = false
+	_step6_third_person_stay_timer = 0.0
+	_step_transition_active = false
 
 	match step:
 		0:
 			_tutorial_banner_style.border_color = Color(0.3, 0.85, 1.0)
-			_tutorial_title_label.text = "🎯 基础身法 (1/6): 前后左右位移"
-			_tutorial_sub_label.text = "使用键盘 【W / A / S / D】 键控制角色在场景中自由行走走动。"
+			_tutorial_title_label.text = "🎯 基础身法 (1/7): 四向基础位移"
+			_tutorial_sub_label.text = "请依次尝试前后左右四个方向走动：前 W [ ] · 左 A [ ] · 后 S [ ] · 右 D [ ]"
 			_rebuild_tutorial_keys(["W", "A", "S", "D"])
 			if _tutorial_arrow != null:
 				_tutorial_arrow.visible = false
 		1:
 			_tutorial_banner_style.border_color = Color(1.0, 0.75, 0.2)
-			_tutorial_title_label.text = "🎯 基础身法 (2/6): 疾步冲刺奔跑"
-			_tutorial_sub_label.text = "按住 【Shift】 键并按住 【W】 直线向前，角色将进入全力疾跑冲刺状态！"
+			_tutorial_title_label.text = "🎯 基础身法 (2/7): 疾步冲刺奔跑"
+			_tutorial_sub_label.text = "按住 【Shift】 键并按住 【W】 直线向前，体验加速疾跑冲刺！"
 			_rebuild_tutorial_keys(["SHIFT", "+", "W"])
 			if _tutorial_arrow != null:
 				_tutorial_arrow.visible = false
 		2:
 			_tutorial_banner_style.border_color = Color(0.35, 0.9, 0.6)
-			_tutorial_title_label.text = "🎯 基础身法 (3/6): 起跳腾空"
-			_tutorial_sub_label.text = "按下 【空格键 (Space)】，角色将发力向上起跳腾空！"
+			_tutorial_title_label.text = "🎯 基础身法 (3/7): 起跳腾空与落地"
+			_tutorial_sub_label.text = "按下 【空格键 (Space)】 向上起跳，体验空中腾空与平稳触地！"
 			_rebuild_tutorial_keys(["SPACE"])
 			if _tutorial_arrow != null:
 				_tutorial_arrow.visible = false
 		3:
 			_tutorial_banner_style.border_color = Color(1.0, 0.85, 0.3)
-			_tutorial_title_label.text = "🎯 基础身法 (4/6): 攀登 2 格高台"
-			_tutorial_sub_label.text = "贴近前方发光的 2 格高障碍平台边缘，按下 【空格键 (Space)】 触发物理攀登翻越上台！"
+			_tutorial_title_label.text = "🎯 基础身法 (4/7): 攀登 2 格高台"
+			_tutorial_sub_label.text = "贴近前方发光的 2 格高障碍平台边缘，按下 【空格键 (Space)】 翻越并稳稳登上台面！"
 			_rebuild_tutorial_keys(["W", "+", "SPACE"])
 			if _tutorial_arrow != null:
 				_tutorial_arrow.visible = true
 		4:
 			_tutorial_banner_style.border_color = Color(0.85, 0.4, 1.0)
-			_tutorial_title_label.text = "🎯 基础身法 (5/6): 敏捷战术翻滚"
-			_tutorial_sub_label.text = "在地面移动时按下 【Ctrl 键】（或 C 键 / 快速双击 Shift），角色将进行敏捷的战术翻滚闪避！"
-			_rebuild_tutorial_keys(["CTRL", "或", "C"])
+			_tutorial_title_label.text = "🎯 基础身法 (5/7): 战术下蹲潜行"
+			_tutorial_sub_label.text = "按住键盘 【Ctrl 键】进入低姿态下蹲潜行状态。"
+			_rebuild_tutorial_keys(["CTRL"])
 			if _tutorial_arrow != null:
 				_tutorial_arrow.visible = false
 		5:
-			_tutorial_banner_style.border_color = Color(0.2, 0.9, 0.95)
-			_tutorial_title_label.text = "🎯 基础身法 (6/6): 视界自由切换"
-			_tutorial_sub_label.text = "按下 【F3 键】 体验第一人称沉浸视角与第三人称全景视角的自由切换！"
-			_rebuild_tutorial_keys(["F3"])
+			_tutorial_banner_style.border_color = Color(1.0, 0.5, 0.3)
+			_tutorial_title_label.text = "🎯 基础身法 (6/7): 敏捷战术翻滚"
+			_tutorial_sub_label.text = "快速【连续按两下 Shift 键】（双击 Shift），角色将触发敏捷翻滚闪避！"
+			_rebuild_tutorial_keys(["SHIFT", "双击 (x2)"])
 			if _tutorial_arrow != null:
 				_tutorial_arrow.visible = false
 		6:
+			_tutorial_banner_style.border_color = Color(0.2, 0.9, 0.95)
+			_tutorial_title_label.text = "🎯 基础身法 (7/7): 视界自由切换"
+			_tutorial_sub_label.text = "按下 【F3 键】 切换为第一人称，随后再次按下切回第三人称并保持 2 秒。"
+			_rebuild_tutorial_keys(["F3"])
+			if _tutorial_arrow != null:
+				_tutorial_arrow.visible = false
+		7:
 			if _tutorial_banner != null:
 				_tutorial_banner.visible = false
 			if _tutorial_arrow != null:
@@ -590,9 +614,15 @@ func _set_tutorial_step(step: int) -> void:
 			AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/mission_completed.ogg", 0.0)
 
 
-func _advance_tutorial(next_step: int) -> void:
+func _complete_current_step_and_delay_advance(next_step: int, feedback_text: String) -> void:
+	if _step_transition_active:
+		return
+	_step_transition_active = true
+	_step_transition_timer = 1.5
+	_pending_next_step = next_step
+	_tutorial_sub_label.text = "%s （1.5秒后进入下一阶段...）" % feedback_text
+	_tutorial_banner_style.border_color = Color(0.3, 0.95, 0.6)
 	AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/go.ogg", -4.0)
-	_set_tutorial_step(next_step)
 
 
 func _build_tutorial_complete_dialog() -> void:
@@ -629,7 +659,7 @@ func _build_tutorial_complete_dialog() -> void:
 	vbox.add_child(title)
 
 	var desc := Label.new()
-	desc.text = "恭喜您已全面掌握物理动力学角色引擎的核心动作：\n• WASD 位移与 Shift 极速冲刺\n• 空格跳跃与 2 格高台攀登翻越\n• Ctrl 敏捷战术翻滚闪避\n• F3 第一/第三人称视界切换\n\n现在您可以尽情在沙盒中自由体验与探索！"
+	desc.text = "恭喜您已全面掌握物理动力学角色引擎的核心动作：\n• WASD 四向位移与 Shift 极速冲刺\n• 空格跳跃与 2 格高台攀登翻越\n• Ctrl 战术潜行下蹲与双击 Shift 翻滚闪避\n• F3 第一/第三人称视界切换\n\n现在您可以尽情在沙盒中自由体验与探索！"
 	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	if _custom_font != null:
@@ -655,33 +685,72 @@ func _update_tutorial_state(delta: float) -> void:
 	if not _tutorial_active or _player == null:
 		return
 
+	if _step_transition_active:
+		_step_transition_timer -= delta
+		if _step_transition_timer <= 0.0:
+			_set_tutorial_step(_pending_next_step)
+		return
+
 	if _tutorial_arrow != null and _tutorial_arrow.visible:
 		var time := Time.get_ticks_msec() * 0.003
 		_tutorial_arrow.position.y = 2.8 + sin(time) * 0.2
 
 	match _tutorial_step:
 		0:
-			if _player.speed() > 0.2:
-				_tutorial_accum_dist += _player.speed() * delta
-			if _tutorial_accum_dist >= 2.5:
-				_advance_tutorial(1)
+			if Input.is_physical_key_pressed(KEY_W) or (_player.speed() > 0.2 and _player.global_basis.z.dot(_player.velocity.normalized()) > 0.4):
+				_step0_w_done = true
+			if Input.is_physical_key_pressed(KEY_A) or (_player.speed() > 0.2 and _player.global_basis.x.dot(_player.velocity.normalized()) > 0.4):
+				_step0_a_done = true
+			if Input.is_physical_key_pressed(KEY_S) or (_player.speed() > 0.2 and _player.global_basis.z.dot(_player.velocity.normalized()) < -0.4):
+				_step0_s_done = true
+			if Input.is_physical_key_pressed(KEY_D) or (_player.speed() > 0.2 and _player.global_basis.x.dot(_player.velocity.normalized()) < -0.4):
+				_step0_d_done = true
+
+			_tutorial_sub_label.text = "请依次尝试前后左右四个方向走动：前 W [%s] · 左 A [%s] · 后 S [%s] · 右 D [%s]" % [
+				"✓" if _step0_w_done else "待走",
+				"✓" if _step0_a_done else "待走",
+				"✓" if _step0_s_done else "待走",
+				"✓" if _step0_d_done else "待走"
+			]
+
+			if _step0_w_done and _step0_a_done and _step0_s_done and _step0_d_done:
+				_complete_current_step_and_delay_advance(1, "✅ 四向基础位移已全部完成！")
 		1:
 			if _player.state == PlayerControllerScript.State.RUN:
 				_tutorial_accum_run += delta
 			if _tutorial_accum_run >= 1.2:
-				_advance_tutorial(2)
+				_complete_current_step_and_delay_advance(2, "✅ 疾跑冲刺掌握成功！")
 		2:
 			if _player.state == PlayerControllerScript.State.JUMPING:
-				_advance_tutorial(3)
+				_step2_has_jumped = true
+			if _step2_has_jumped and (_player.is_on_floor() or _player.global_position.y <= 0.35) and _player.state != PlayerControllerScript.State.JUMPING and _player.state != PlayerControllerScript.State.FALLING:
+				_step2_land_timer += delta
+				if _step2_land_timer >= 0.5:
+					_complete_current_step_and_delay_advance(3, "✅ 起跳与稳健着陆完成！")
 		3:
 			if _player.state == PlayerControllerScript.State.CLIMBING:
-				_advance_tutorial(4)
+				_step3_climbing_started = true
+			if _step3_climbing_started and _player.global_position.y >= 1.8 and _player.state != PlayerControllerScript.State.CLIMBING:
+				_complete_current_step_and_delay_advance(4, "✅ 成功翻越并稳稳登上 2 格高台！")
 		4:
-			if _player.state == PlayerControllerScript.State.ROLLING:
-				_advance_tutorial(5)
+			if _player.state == PlayerControllerScript.State.CROUCH or (_player._intent != null and _player._intent.crouch):
+				_step4_crouch_timer += delta
+			if _step4_crouch_timer >= 0.8:
+				_complete_current_step_and_delay_advance(5, "✅ 战术下蹲姿态掌握成功！")
 		5:
-			if _camera_toggled_during_step:
-				_advance_tutorial(6)
+			if _player.state == PlayerControllerScript.State.ROLLING:
+				_complete_current_step_and_delay_advance(6, "✅ 敏捷翻滚闪避触发成功！")
+		6:
+			var is_fp: bool = _camera != null and bool(_camera.get("is_first_person"))
+			if is_fp:
+				_step6_saw_first_person = true
+				_step6_third_person_stay_timer = 0.0
+				_tutorial_sub_label.text = "已进入第一人称！现在请再次按下 【F3 键】 切回第三人称并保持 2 秒..."
+			elif _step6_saw_first_person:
+				_step6_third_person_stay_timer += delta
+				_tutorial_sub_label.text = "已切回第三人称，保持观察中 (%.1f / 2.0 秒)..." % minf(_step6_third_person_stay_timer, 2.0)
+				if _step6_third_person_stay_timer >= 2.0:
+					_complete_current_step_and_delay_advance(7, "✅ 视界切换与身法教学圆满达成！")
 
 
 func _process(delta: float) -> void:
@@ -709,7 +778,4 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_TAB:
 			_index = (_index + 1) % _characters.size()
 			_spawn_character()
-		KEY_F3:
-			if _tutorial_active and _tutorial_step == 5:
-				_camera_toggled_during_step = true
 
