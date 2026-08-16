@@ -96,6 +96,10 @@ var _status_label: Label
 var _mode_label: Label
 var _block_info_label: Label
 var _special_path_list_box: VBoxContainer
+var _recording_banner: PanelContainer
+var _recording_banner_style: StyleBoxFlat
+var _recording_banner_title: Label
+var _recording_banner_sub: Label
 var _save_load_dialog: PanelContainer
 var _map_file_list: ItemList
 var _map_name_edit: LineEdit
@@ -435,6 +439,8 @@ func _set_mode(new_mode: int) -> void:
 		EditorMode.BUILD:
 			_npc.intent_source = _npc_intent_source
 			_builder_camera.current = true
+			if _recording_banner != null:
+				_recording_banner.visible = false
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 			_mode_label.text = "模式: 【自由建造】 (按 TAB 试玩, 按 R 录制特殊跳跃, 准星对准轨迹连按两下 X 删除)"
 			_set_status("准星瞄准：左键放置，右键删除方块，连按两下 X 删除特殊轨迹，Shift+左键 指定人机寻路")
@@ -445,8 +451,8 @@ func _set_mode(new_mode: int) -> void:
 			_ghost.visible = false
 			_has_aim = false
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-			_mode_label.text = "模式: 【操控试玩】 (按 TAB 退出操控返回建造)"
-			_set_status("WASD移动，Shift加速，Space跳跃")
+			_mode_label.text = "模式: 【操控试玩】 (按 R 录制特殊跳跃, 按 TAB 返回自由建造)"
+			_set_status("WASD移动，Shift加速，Space跳跃，按 R 开启特殊路径录制")
 		EditorMode.RECORD_SPECIAL_PATH:
 			_npc.intent_source = _player_intent_source
 			_follow_camera.current = true
@@ -456,6 +462,7 @@ func _set_mode(new_mode: int) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 			_mode_label.text = "模式: 【特殊路径录制】 (按 ESC / R 取消录制)"
 			_recorder.start_recording()
+			_update_recording_hud(SpecialPathRecorderScript.State.ARMED_WAITING_FOR_REST, "请在起点格保持完全静止...")
 
 
 func _set_status(msg: String) -> void:
@@ -506,7 +513,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_R:
 					if _mode == EditorMode.RECORD_SPECIAL_PATH:
 						_recorder.cancel_recording()
-						_set_mode(EditorMode.BUILD)
+						_set_mode(EditorMode.PLAY_TEST)
+						_update_recording_hud(SpecialPathRecorderScript.State.IDLE, "用户取消了本次录制", true)
+						_set_status("已取消录制，按 R 重新录制，按 TAB 返回建造")
 					else:
 						_set_mode(EditorMode.RECORD_SPECIAL_PATH)
 					get_viewport().set_input_as_handled()
@@ -817,17 +826,28 @@ func _on_special_path_recorded(path_data: Dictionary) -> void:
 	_nav.add_special_path(path_data)
 	_redraw_special_paths()
 	_refresh_special_paths_ui()
-	_set_mode(EditorMode.BUILD)
-	_set_status("已成功记录并接入特殊跳跃路径！")
+	_set_mode(EditorMode.PLAY_TEST)
+	var from_arr: Array = path_data.get("from", [0, 0, 0])
+	var to_arr: Array = path_data.get("to", [0, 0, 0])
+	var traj_count: int = (path_data.get("trajectory", []) as Array).size()
+	var msg := "起点 (%d,%d,%d) -> 终点 (%d,%d,%d) · 共 %d 帧" % [
+		from_arr[0], from_arr[1], from_arr[2],
+		to_arr[0], to_arr[1], to_arr[2],
+		traj_count
+	]
+	_update_recording_hud(SpecialPathRecorderScript.State.COMPLETED, msg)
+	_set_status("特殊跳跃录制成功！按 R 继续录制下一条，按 TAB 切换自由建造")
 
 
 func _on_special_path_failed(reason: String) -> void:
-	_set_status(reason)
-	_set_mode(EditorMode.BUILD)
+	_set_mode(EditorMode.PLAY_TEST)
+	_update_recording_hud(SpecialPathRecorderScript.State.IDLE, reason, true)
+	_set_status("录制未完成/取消：%s" % reason)
 
 
-func _on_recorder_state_changed(_state: int, message: String) -> void:
+func _on_recorder_state_changed(state: int, message: String) -> void:
 	_set_status(message)
+	_update_recording_hud(state, message)
 
 
 func _redraw_special_paths() -> void:
@@ -1275,8 +1295,103 @@ func _build_hud() -> void:
 	_status_label.add_theme_font_size_override("font_size", 12)
 	bottom_box.add_child(_status_label)
 
+	_build_recording_banner()
 	_build_save_load_dialog()
 	_refresh_special_paths_ui()
+
+
+func _build_recording_banner() -> void:
+	_recording_banner = PanelContainer.new()
+	_recording_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_recording_banner.offset_left = -280
+	_recording_banner.offset_right = 280
+	_recording_banner.offset_top = 64
+	_recording_banner.offset_bottom = 144
+	_recording_banner.custom_minimum_size = Vector2(560, 80)
+	_recording_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_recording_banner.visible = false
+
+	_recording_banner_style = StyleBoxFlat.new()
+	_recording_banner_style.bg_color = Color(0.1, 0.12, 0.16, 0.95)
+	_recording_banner_style.set_corner_radius_all(10)
+	_recording_banner_style.set_border_width_all(2)
+	_recording_banner_style.border_color = Color(0.2, 0.85, 1.0)
+	_recording_banner_style.set_content_margin_all(10)
+	_recording_banner.add_theme_stylebox_override("panel", _recording_banner_style)
+	_hud_canvas.add_child(_recording_banner)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 5)
+	_recording_banner.add_child(vbox)
+
+	_recording_banner_title = Label.new()
+	_recording_banner_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_recording_banner_title.add_theme_font_size_override("font_size", 16)
+	_recording_banner_title.text = "🟡 准备录制中..."
+	vbox.add_child(_recording_banner_title)
+
+	_recording_banner_sub = Label.new()
+	_recording_banner_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_recording_banner_sub.add_theme_font_size_override("font_size", 12)
+	_recording_banner_sub.text = "请在起点格停下脚步保持静止 0.2 秒"
+	_recording_banner_sub.modulate = Color(1.0, 1.0, 1.0, 0.88)
+	vbox.add_child(_recording_banner_sub)
+
+
+func _update_recording_hud(state: int, message: String, is_failure := false) -> void:
+	if _recording_banner == null:
+		return
+
+	if is_failure:
+		_recording_banner.visible = true
+		_recording_banner_style.bg_color = Color(0.28, 0.08, 0.08, 0.95)
+		_recording_banner_style.border_color = Color(1.0, 0.35, 0.35)
+		_recording_banner_title.text = "❌ 录制未完成 / 已取消"
+		_recording_banner_title.modulate = Color(1.0, 0.45, 0.45)
+		_recording_banner_sub.text = "%s\n按 R 重新开始录制 · 按 TAB 切换自由建造" % message
+		_recording_banner_sub.modulate = Color(1.0, 0.88, 0.88)
+		return
+
+	match state:
+		SpecialPathRecorderScript.State.ARMED_WAITING_FOR_REST:
+			_recording_banner.visible = true
+			_recording_banner_style.bg_color = Color(0.28, 0.18, 0.04, 0.95)
+			_recording_banner_style.border_color = Color(1.0, 0.82, 0.2)
+			_recording_banner_title.text = "🟡 [准备录制] 请停下脚步保持静止 0.2 秒..."
+			_recording_banner_title.modulate = Color(1.0, 0.9, 0.3)
+			_recording_banner_sub.text = "正在检测并锁定起点站立格 (按 ESC / R 取消)"
+			_recording_banner_sub.modulate = Color(1.0, 0.94, 0.75)
+
+		SpecialPathRecorderScript.State.GROUND_RECORDING:
+			_recording_banner.visible = true
+			_recording_banner_style.bg_color = Color(0.04, 0.26, 0.12, 0.96)
+			_recording_banner_style.border_color = Color(0.25, 1.0, 0.45)
+			_recording_banner_title.text = "🟢 ● RECORDING [可以起跑起跳！]"
+			_recording_banner_title.modulate = Color(0.35, 1.0, 0.55)
+			_recording_banner_sub.text = "已锁定起点！起跑并跳向目标格 · 自动以起跳前最后一次静止点为起点"
+			_recording_banner_sub.modulate = Color(0.85, 1.0, 0.9)
+
+		SpecialPathRecorderScript.State.AIRBORNE_RECORDING:
+			_recording_banner.visible = true
+			_recording_banner_style.bg_color = Color(0.04, 0.20, 0.30, 0.96)
+			_recording_banner_style.border_color = Color(0.2, 0.88, 1.0)
+			_recording_banner_title.text = "🔵 ✈️ [空中飞行轨迹采样中...]"
+			_recording_banner_title.modulate = Color(0.4, 0.9, 1.0)
+			_recording_banner_sub.text = "记录空中位移与操作快照 · 落地即可完成录制"
+			_recording_banner_sub.modulate = Color(0.85, 0.95, 1.0)
+
+		SpecialPathRecorderScript.State.COMPLETED:
+			_recording_banner.visible = true
+			_recording_banner_style.bg_color = Color(0.24, 0.08, 0.28, 0.96)
+			_recording_banner_style.border_color = Color(1.0, 0.85, 0.25)
+			_recording_banner_title.text = "🎉 ✓ [特殊跳跃录制成功！]"
+			_recording_banner_title.modulate = Color(1.0, 0.9, 0.3)
+			_recording_banner_sub.text = "%s\n按 R 立即录制下一段 · 按 TAB 切换自由建造" % message
+			_recording_banner_sub.modulate = Color(1.0, 0.95, 0.95)
+
+		SpecialPathRecorderScript.State.IDLE:
+			_recording_banner.visible = false
 
 
 func _make_dim_slider(label_text: String, min_val: int, max_val: int, init_val: int, callback: Callable) -> Control:
