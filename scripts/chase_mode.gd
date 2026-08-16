@@ -19,6 +19,7 @@ const FAST_REPATH_INTERVAL := 0.06
 const SLOW_REPATH_INTERVAL := 0.25
 const LOS_DELAY_SECONDS := 0.20
 const CATCH_DISTANCE_THRESHOLD := 1.05
+const DOUBLE_TAP_WINDOW := 0.45
 
 enum State {
 	SELECT_MAP,
@@ -57,6 +58,9 @@ var _player_was_jumping_or_climbing := false
 var _deferred_repath_pending := false
 var _player_history: Array[Dictionary] = []
 
+var _show_debug_path := false
+var _last_x_press_time := -1000.0
+
 var _path_mesh_instance: MeshInstance3D
 var _path_immediate_mesh: ImmediateMesh
 var _target_beacon: MeshInstance3D
@@ -70,6 +74,7 @@ var _info_box: PanelContainer
 var _survival_label: Label
 var _distance_label: Label
 var _status_detail_label: Label
+var _hint_x_toggle_label: Label
 
 var _map_select_dialog: PanelContainer
 var _map_list: ItemList
@@ -109,6 +114,16 @@ func _unhandled_input(event: InputEvent) -> void:
 				get_tree().change_scene_to_file(MENU_SCENE)
 				return
 			_open_map_select_dialog()
+			get_viewport().set_input_as_handled()
+			return
+		elif event.keycode == KEY_X:
+			var now := float(Time.get_ticks_msec()) * 0.001
+			if (now - _last_x_press_time) <= DOUBLE_TAP_WINDOW:
+				_show_debug_path = not _show_debug_path
+				_last_x_press_time = -1000.0
+				_update_debug_path_visibility()
+			else:
+				_last_x_press_time = now
 			get_viewport().set_input_as_handled()
 			return
 
@@ -158,7 +173,7 @@ func _physics_process(delta: float) -> void:
 					# Direct Sprint Mode (bypasses A* search to save CPU, direct sprint with 200ms delay!)
 					_npc_intent.direct_chase(delayed_target)
 					_target_beacon.global_position = delayed_target
-					_target_beacon.visible = true
+					_target_beacon.visible = _show_debug_path and _state == State.CHASE_ACTIVE
 					_draw_npc_path(PackedVector3Array([_npc.global_position, delayed_target]))
 					_repath_timer = 0.0
 					_deferred_repath_pending = false
@@ -259,7 +274,7 @@ func _execute_npc_repath() -> void:
 	# Rule: Chaser always targets the center of the block under the Escaper's feet
 	var target_pos := NavGridScript.foot(player_cell)
 	_target_beacon.global_position = target_pos
-	_target_beacon.visible = true
+	_target_beacon.visible = _show_debug_path and _state == State.CHASE_ACTIVE
 
 	var result := _nav.find_path(_npc.global_position, target_pos)
 	if result.points.is_empty():
@@ -409,6 +424,7 @@ func _build_visual_helpers() -> void:
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.no_depth_test = true
 	_path_mesh_instance.material_override = mat
+	_path_mesh_instance.visible = false
 	add_child(_path_mesh_instance)
 
 	_target_beacon = MeshInstance3D.new()
@@ -508,6 +524,21 @@ func _draw_npc_path(points: PackedVector3Array) -> void:
 		_path_immediate_mesh.surface_set_color(col)
 		_path_immediate_mesh.surface_add_vertex(p2)
 	_path_immediate_mesh.surface_end()
+	_path_mesh_instance.visible = _show_debug_path
+
+
+func _update_debug_path_visibility() -> void:
+	if _path_mesh_instance != null:
+		_path_mesh_instance.visible = _show_debug_path
+	if _target_beacon != null:
+		_target_beacon.visible = _show_debug_path and _state == State.CHASE_ACTIVE
+	if _hint_x_toggle_label != null:
+		if _show_debug_path:
+			_hint_x_toggle_label.text = "AI路线与红柱: 显示中 (连按两下X隐藏)"
+			_hint_x_toggle_label.modulate = Color(1.0, 0.85, 0.3, 0.9)
+		else:
+			_hint_x_toggle_label.text = "AI路线与红柱: 已隐藏 (连按两下X显示)"
+			_hint_x_toggle_label.modulate = Color(0.7, 0.7, 0.7, 0.65)
 
 
 # --- Map Loading ------------------------------------------------------------
@@ -666,6 +697,12 @@ func _build_hud() -> void:
 	_status_detail_label.add_theme_font_size_override("font_size", 11)
 	_status_detail_label.modulate = Color(1.0, 1.0, 1.0, 0.65)
 	stat_vbox.add_child(_status_detail_label)
+
+	_hint_x_toggle_label = Label.new()
+	_hint_x_toggle_label.text = "AI路线与红柱: 已隐藏 (连按两下X显示)"
+	_hint_x_toggle_label.add_theme_font_size_override("font_size", 11)
+	_hint_x_toggle_label.modulate = Color(0.7, 0.7, 0.7, 0.65)
+	stat_vbox.add_child(_hint_x_toggle_label)
 
 	_build_map_select_dialog()
 	_build_game_over_dialog()

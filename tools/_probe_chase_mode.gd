@@ -125,6 +125,31 @@ func _test_repath_timing_rules() -> void:
 	cm.call("_request_npc_repath", true)
 	_ok("Rule 3: Player landing resets repath timer to 0.0", is_zero_approx(float(cm.get("_repath_timer"))))
 
+	# Test Double-Tap X Visibility Toggle (default hidden)
+	_ok("Default path debug visibility is false (hidden)", not bool(cm.get("_show_debug_path")))
+	var path_mesh: MeshInstance3D = cm.get("_path_mesh_instance")
+	var beacon: MeshInstance3D = cm.get("_target_beacon")
+	_ok("Path mesh instance is hidden by default", not path_mesh.visible)
+	_ok("Target beacon is hidden by default", not beacon.visible)
+
+	# Simulate first X press
+	var ev_x := InputEventKey.new()
+	ev_x.keycode = KEY_X
+	ev_x.pressed = true
+	cm._unhandled_input(ev_x)
+	_ok("Single tap X does NOT toggle visibility", not bool(cm.get("_show_debug_path")))
+
+	# Simulate second X press immediately within window
+	cm._unhandled_input(ev_x)
+	_ok("Double tap X toggles _show_debug_path to TRUE", bool(cm.get("_show_debug_path")))
+	_ok("Path mesh becomes visible after double tap X", path_mesh.visible)
+
+	# Simulate another double tap X to hide again
+	cm._unhandled_input(ev_x)
+	cm._unhandled_input(ev_x)
+	_ok("Another double tap X toggles _show_debug_path back to FALSE", not bool(cm.get("_show_debug_path")))
+	_ok("Path mesh is hidden again", not path_mesh.visible)
+
 	# Test Catch detection & Game Over trigger
 	var player: CharacterBody3D = cm.get("_player")
 	var npc: CharacterBody3D = cm.get("_npc")
