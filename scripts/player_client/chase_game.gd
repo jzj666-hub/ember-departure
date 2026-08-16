@@ -13,6 +13,7 @@ const NPCIntentSourceScript = preload("res://scripts/npc_intent_source.gd")
 const FollowCameraScript = preload("res://scripts/follow_camera.gd")
 
 const TITLE_SCENE := "res://scenes/player_client/title_screen.tscn"
+const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 const GROUND_HALF := 25.0
 const MAX_BLOCK_Y := 12
 const ESCAPE_COUNTDOWN_TIME := 15.0
@@ -30,6 +31,7 @@ enum State {
 }
 
 var preloaded_map_path: String = ""
+var _custom_font: Font = null
 
 var _state: State = State.PREPARE
 var _escape_timer: float = ESCAPE_COUNTDOWN_TIME
@@ -91,6 +93,9 @@ func _ready() -> void:
 	AudioManagerScript.init_pool(self)
 	BlockRegistryScript.init_registry()
 
+	if ResourceLoader.exists(FONT_PATH):
+		_custom_font = load(FONT_PATH) as Font
+
 	_characters = CharacterPipelineScript.list_characters().filter(
 		func(c: Dictionary) -> bool: return ResourceLoader.exists(c.scene))
 
@@ -122,6 +127,7 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 			get_tree().change_scene_to_file(TITLE_SCENE)
 			get_viewport().set_input_as_handled()
 			return
@@ -676,29 +682,39 @@ func _build_hud() -> void:
 
 	var mode_tag := Label.new()
 	mode_tag.text = "对决模式: 1v1 极限追缉"
-	mode_tag.add_theme_font_size_override("font_size", 13)
+	if _custom_font != null:
+		mode_tag.add_theme_font_override("font", _custom_font)
+	mode_tag.add_theme_font_size_override("font_size", 16)
 	mode_tag.modulate = Color(0.4, 0.85, 1.0)
 	stat_vbox.add_child(mode_tag)
 
 	_survival_label = Label.new()
 	_survival_label.text = "逃生生存时间: 00:00.0"
-	_survival_label.add_theme_font_size_override("font_size", 12)
+	if _custom_font != null:
+		_survival_label.add_theme_font_override("font", _custom_font)
+	_survival_label.add_theme_font_size_override("font_size", 14)
 	stat_vbox.add_child(_survival_label)
 
 	_distance_label = Label.new()
 	_distance_label.text = "距离追缉者: -- m"
-	_distance_label.add_theme_font_size_override("font_size", 12)
+	if _custom_font != null:
+		_distance_label.add_theme_font_override("font", _custom_font)
+	_distance_label.add_theme_font_size_override("font_size", 14)
 	stat_vbox.add_child(_distance_label)
 
 	_status_detail_label = Label.new()
 	_status_detail_label.text = "追缉者状态: 锁定原地待命"
-	_status_detail_label.add_theme_font_size_override("font_size", 11)
+	if _custom_font != null:
+		_status_detail_label.add_theme_font_override("font", _custom_font)
+	_status_detail_label.add_theme_font_size_override("font_size", 13)
 	_status_detail_label.modulate = Color(1.0, 1.0, 1.0, 0.65)
 	stat_vbox.add_child(_status_detail_label)
 
 	_hint_x_toggle_label = Label.new()
 	_hint_x_toggle_label.text = "AI 路线与红柱: 已隐藏 (连按两下 X 开启)"
-	_hint_x_toggle_label.add_theme_font_size_override("font_size", 11)
+	if _custom_font != null:
+		_hint_x_toggle_label.add_theme_font_override("font", _custom_font)
+	_hint_x_toggle_label.add_theme_font_size_override("font_size", 13)
 	_hint_x_toggle_label.modulate = Color(0.7, 0.7, 0.7, 0.65)
 	stat_vbox.add_child(_hint_x_toggle_label)
 
@@ -732,7 +748,7 @@ func _build_keycaps_overlay() -> void:
 	grid.add_theme_constant_override("v_separation", 6)
 	_keycaps_overlay.add_child(grid)
 
-	_add_mini_key(grid, "res://assets/buttons_pattern/W.png", "移动")
+	_add_mini_key(grid, "res://assets/buttons_pattern/W.png", "移动控制")
 	_add_mini_key(grid, "res://assets/buttons_pattern/SHIFT.png", "冲刺奔跑")
 	_add_mini_key(grid, "res://assets/buttons_pattern/SPACE.png", "跳跃/攀爬")
 	_add_mini_key(grid, "res://assets/buttons_pattern/X.png", "双击显隐路线")
@@ -752,7 +768,9 @@ func _add_mini_key(grid: GridContainer, key_png: String, label_text: String) -> 
 
 	var lbl := Label.new()
 	lbl.text = label_text
-	lbl.add_theme_font_size_override("font_size", 10)
+	if _custom_font != null:
+		lbl.add_theme_font_override("font", _custom_font)
+	lbl.add_theme_font_size_override("font_size", 12)
 	lbl.modulate = Color(0.85, 0.88, 0.92, 0.8)
 	row.add_child(lbl)
 
@@ -767,6 +785,9 @@ func _update_escape_countdown_hud() -> void:
 		_banner_icon.modulate = Color(1.0, 0.85, 0.2)
 
 	_banner_title.text = "逃生准备倒计时: %.1f 秒" % _escape_timer
+	if _custom_font != null:
+		_banner_title.add_theme_font_override("font", _custom_font)
+		_banner_sub.add_theme_font_override("font", _custom_font)
 	_banner_title.modulate = Color(1.0, 0.9, 0.3)
 	_banner_sub.text = "尽快利用地形与跳跃拉开距离！倒计时结束后追缉者将出动！"
 	_survival_label.text = "逃生倒计时: %.1f s" % _escape_timer
@@ -781,6 +802,9 @@ func _update_active_chase_hud() -> void:
 		_banner_icon.modulate = Color(1.0, 0.35, 0.35)
 
 	_banner_title.text = "追缉进行中！全力逃生！"
+	if _custom_font != null:
+		_banner_title.add_theme_font_override("font", _custom_font)
+		_banner_sub.add_theme_font_override("font", _custom_font)
 	_banner_title.modulate = Color(1.0, 0.4, 0.4)
 
 	var dist := _player.global_position.distance_to(_npc.global_position) if _player and _npc else 0.0
@@ -842,21 +866,27 @@ func _build_game_over_dialog() -> void:
 	var title := Label.new()
 	title.text = "被 追 缉 者 捕 获 ！"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 20)
+	if _custom_font != null:
+		title.add_theme_font_override("font", _custom_font)
+	title.add_theme_font_size_override("font_size", 24)
 	title.modulate = Color(1.0, 0.35, 0.35)
 	vbox.add_child(title)
 
 	var desc := Label.new()
 	desc.text = "追缉者已逼近至 1 格范围以内，逃生失败。"
 	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	desc.add_theme_font_size_override("font_size", 12)
+	if _custom_font != null:
+		desc.add_theme_font_override("font", _custom_font)
+	desc.add_theme_font_size_override("font_size", 14)
 	desc.modulate = Color(0.8, 0.8, 0.8)
 	vbox.add_child(desc)
 
 	_game_over_time_lbl = Label.new()
 	_game_over_time_lbl.text = "00:00.0"
 	_game_over_time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_game_over_time_lbl.add_theme_font_size_override("font_size", 26)
+	if _custom_font != null:
+		_game_over_time_lbl.add_theme_font_override("font", _custom_font)
+	_game_over_time_lbl.add_theme_font_size_override("font_size", 30)
 	_game_over_time_lbl.modulate = Color(1.0, 0.85, 0.25)
 	vbox.add_child(_game_over_time_lbl)
 
@@ -867,12 +897,21 @@ func _build_game_over_dialog() -> void:
 
 	var retry_btn := Button.new()
 	retry_btn.text = "重新逃生挑战"
+	if _custom_font != null:
+		retry_btn.add_theme_font_override("font", _custom_font)
+	retry_btn.add_theme_font_size_override("font_size", 16)
 	retry_btn.custom_minimum_size = Vector2(130, 40)
 	retry_btn.pressed.connect(_start_escape_countdown)
 	btn_box.add_child(retry_btn)
 
 	var menu_btn := Button.new()
 	menu_btn.text = "返回游戏大厅"
+	if _custom_font != null:
+		menu_btn.add_theme_font_override("font", _custom_font)
+	menu_btn.add_theme_font_size_override("font_size", 16)
 	menu_btn.custom_minimum_size = Vector2(130, 40)
-	menu_btn.pressed.connect(func() -> void: get_tree().change_scene_to_file(TITLE_SCENE))
+	menu_btn.pressed.connect(func() -> void:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		get_tree().change_scene_to_file(TITLE_SCENE)
+	)
 	btn_box.add_child(menu_btn)
