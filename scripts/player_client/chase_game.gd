@@ -33,6 +33,8 @@ enum State {
 var preloaded_map_path: String = ""
 var _custom_font: Font = null
 
+static var next_map_path: String = ""
+
 var _state: State = State.PREPARE
 var _escape_timer: float = ESCAPE_COUNTDOWN_TIME
 var _last_countdown_voice := 16
@@ -90,6 +92,10 @@ var _game_over_time_lbl: Label
 
 
 func _ready() -> void:
+	if not next_map_path.is_empty():
+		preloaded_map_path = next_map_path
+		next_map_path = ""
+
 	AudioManagerScript.init_pool(self)
 	BlockRegistryScript.init_registry()
 
@@ -127,11 +133,12 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
+			get_viewport().set_input_as_handled()
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 			get_tree().change_scene_to_file(TITLE_SCENE)
-			get_viewport().set_input_as_handled()
 			return
 		elif event.keycode == KEY_X:
+			get_viewport().set_input_as_handled()
 			var now := float(Time.get_ticks_msec()) * 0.001
 			if (now - _last_x_press_time) <= DOUBLE_TAP_WINDOW:
 				_show_debug_path = not _show_debug_path
@@ -139,7 +146,6 @@ func _unhandled_input(event: InputEvent) -> void:
 				_update_debug_path_visibility()
 			else:
 				_last_x_press_time = now
-			get_viewport().set_input_as_handled()
 			return
 
 

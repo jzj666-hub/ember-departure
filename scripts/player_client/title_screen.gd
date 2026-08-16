@@ -27,18 +27,16 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
+			get_viewport().set_input_as_handled()
 			if _guide_dialog != null and _guide_dialog.visible:
 				_guide_dialog.visible = false
-				get_viewport().set_input_as_handled()
 				return
 			if _map_dialog != null and _map_dialog.visible:
 				_map_dialog.visible = false
-				get_viewport().set_input_as_handled()
 				return
 			# Return to Mode Selector Gateway
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 			get_tree().change_scene_to_file(MAIN_GATEWAY_SCENE)
-			get_viewport().set_input_as_handled()
 
 
 func _build_ui() -> void:
@@ -353,14 +351,10 @@ func _on_start_game_pressed() -> void:
 		var idx := selected[0]
 		map_path = str(_map_list.get_item_metadata(idx))
 
-	var chase_scene := load(CHASE_SCENE) as PackedScene
-	if chase_scene == null:
-		return
-	var inst := chase_scene.instantiate()
-	inst.set("preloaded_map_path", map_path)
-	get_tree().root.add_child(inst)
-	get_tree().current_scene.queue_free()
-	get_tree().current_scene = inst
+	var chase_script = load("res://scripts/player_client/chase_game.gd")
+	if chase_script != null:
+		chase_script.next_map_path = map_path
+	get_tree().change_scene_to_file(CHASE_SCENE)
 
 
 func _open_guide_dialog() -> void:
