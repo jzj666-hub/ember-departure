@@ -848,7 +848,7 @@ func _begin_special_replay() -> bool:
 	_replay_attempts[path_id] = tries + 1
 
 	var first: Dictionary = traj[0]
-	_replay_traj = traj
+	_replay_traj = traj.duplicate(true)
 	_replay_rest = _to_vec3(data.get("rest_pos"), _to_vec3(first.get("p"), _path[_path_index - 1]))
 	_replay_heading = float(data.get("rest_heading", first.get("heading", 0.0)))
 	_replay_index = _path_index

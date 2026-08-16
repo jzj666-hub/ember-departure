@@ -26,6 +26,7 @@ func _initialize() -> void:
 	_check_tape_is_fed_verbatim()
 	_check_landing_center()
 	_check_attempts_bounded()
+	_check_multi_path_isolation()
 
 	print("")
 	if _failures == 0:
@@ -308,3 +309,63 @@ func _check_attempts_bounded() -> void:
 		started == NPCIntentSourceScript.REPLAY_MAX_ATTEMPTS,
 		"(%d of %d tries)" % [started, NPCIntentSourceScript.REPLAY_MAX_ATTEMPTS + 2])
 	(armed[2] as CharacterBody3D).free()
+
+
+# --- sequential recording and multi-path isolation --------------------------
+
+func _check_multi_path_isolation() -> void:
+	print("\n--- multiple recorded paths remain isolated and never leak or mirror the latest ---")
+	var SpecialPathRecorderScript = preload("res://scripts/special_path_recorder.gd")
+	var rec = SpecialPathRecorderScript.new()
+	var grid := _grid()
+	rec.set_nav_grid(grid)
+	rec.path_recorded.connect(grid.add_special_path)
+
+	# Mock body
+	var body := CharacterBody3D.new()
+
+	# Record Path 1: Heading = 1.0, 10 frames
+	rec._reset()
+	rec._state = SpecialPathRecorderScript.State.GROUND_RECORDING
+	rec._start_cell = Vector3i(-1, 2, 0)
+	rec._rest_pos = Vector3(-1.0, 2.0, 0.0)
+	rec._rest_heading = 1.0
+	rec._takeoff_pos = Vector3(-0.5, 2.0, 0.0)
+	rec._takeoff_speed = 3.6
+	rec._takeoff_vel = Vector3(3.6, 0.0, 0.0)
+	for i in range(10):
+		rec._trajectory_samples.append({"p": [float(i), 2.0, 0.0], "heading": 1.0, "run": true, "jump": i == 9, "grounded": true})
+	rec._state = SpecialPathRecorderScript.State.AIRBORNE_RECORDING
+	rec._landing_pos = Vector3(5.0, 2.0, 0.0)
+	rec._finalize_recording()
+
+	var path1: Dictionary = grid.get_special_paths()[0]
+	var path1_traj: Array = path1.get("trajectory", [])
+	_ok("Path 1 recorded 10 frames", path1_traj.size() == 10)
+	_ok("Path 1 heading is 1.0", is_equal_approx(float(path1_traj[0].get("heading")), 1.0))
+
+	# Record Path 2: Heading = 2.5, 25 frames
+	rec._reset()
+	rec._state = SpecialPathRecorderScript.State.GROUND_RECORDING
+	rec._start_cell = Vector3i(5, 2, 0)
+	rec._rest_pos = Vector3(5.0, 2.0, 0.0)
+	rec._rest_heading = 2.5
+	rec._takeoff_pos = Vector3(5.5, 2.0, 0.0)
+	rec._takeoff_speed = 3.6
+	rec._takeoff_vel = Vector3(3.6, 0.0, 0.0)
+	for i in range(25):
+		rec._trajectory_samples.append({"p": [5.0 + float(i), 2.0, 0.0], "heading": 2.5, "run": true, "jump": i == 24, "grounded": true})
+	rec._state = SpecialPathRecorderScript.State.AIRBORNE_RECORDING
+	rec._landing_pos = Vector3(9.0, 2.0, 0.0)
+	rec._finalize_recording()
+
+	var paths := grid.get_special_paths()
+	_ok("Both paths stored in grid", paths.size() == 2)
+	var p1_after: Dictionary = paths[0]
+	var p2_after: Dictionary = paths[1]
+	_ok("Path 1 STILL has 10 frames after Path 2 was recorded", (p1_after.get("trajectory", []) as Array).size() == 10)
+	_ok("Path 1 STILL has heading 1.0", is_equal_approx(float(p1_after["trajectory"][0].get("heading")), 1.0))
+	_ok("Path 2 has 25 frames", (p2_after.get("trajectory", []) as Array).size() == 25)
+	_ok("Path 2 has heading 2.5", is_equal_approx(float(p2_after["trajectory"][0].get("heading")), 2.5))
+
+	body.free()

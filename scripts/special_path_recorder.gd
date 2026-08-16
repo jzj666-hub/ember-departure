@@ -76,7 +76,7 @@ func cancel_recording() -> void:
 
 func _reset() -> void:
 	_state = State.IDLE
-	_trajectory_samples.clear()
+	_trajectory_samples = []
 	_timer = 0.0
 	_rest_timer = 0.0
 	_air_timer = 0.0
@@ -253,7 +253,7 @@ func _finalize_recording() -> void:
 		"rest_pos": [_rest_pos.x, _rest_pos.y, _rest_pos.z],
 		"rest_heading": _rest_heading,
 		"ground_frames": ground_frames,
-		"trajectory": _trajectory_samples,
+		"trajectory": _trajectory_samples.duplicate(true),
 	}
 
 	_state = State.COMPLETED

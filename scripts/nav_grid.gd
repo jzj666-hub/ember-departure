@@ -257,7 +257,7 @@ func add_special_path(path_dict: Dictionary) -> void:
 		var t := _parse_coord(_special_paths[i].get("to"))
 		if (path_id != "" and old_id == path_id) or (f == from_c and t == to_c):
 			_special_paths.remove_at(i)
-	_special_paths.append(path_dict)
+	_special_paths.append(path_dict.duplicate(true))
 	_dirty = true
 	grid_changed.emit()
 
@@ -298,7 +298,7 @@ func get_special_path_between(from_cell: Vector3i, to_cell: Vector3i) -> Diction
 		var f := _parse_coord(p.get("from"))
 		var t := _parse_coord(p.get("to"))
 		if f == from_cell and t == to_cell:
-			return p
+			return p.duplicate(true)
 	return {}
 
 
