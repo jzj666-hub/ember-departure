@@ -418,6 +418,7 @@ func _build_npc() -> void:
 		_beacon_instance.visible = false
 		_draw_path(PackedVector3Array(), PackedInt32Array())
 		_set_status("NPC 已抵达目标")
+		_on_npc_arrived_destination(_t)
 	)
 	_npc_intent_source.path_blocked.connect(func(_t: Vector3, r: Vector3) -> void:
 		_beacon_instance.visible = false
@@ -991,7 +992,9 @@ func _recalculate_npc_path(target: Vector3) -> void:
 
 	if _interactive_tutorial_active:
 		if _tutorial_step == 2:
-			_advance_interactive_tutorial(3)
+			if _interactive_banner != null:
+				_interactive_banner_title.text = "🎯 新手任务 (3/6): 正在寻路..."
+				_interactive_banner_sub.text = "👀 人机已启动动力学规划寻路，请静静观察其移动路线与落点！"
 		elif _tutorial_step == 5:
 			_advance_interactive_tutorial(6)
 
@@ -1594,8 +1597,23 @@ func _build_interactive_complete_dialog() -> void:
 
 func start_interactive_tutorial() -> void:
 	_interactive_tutorial_active = true
+	_ui_panels_visible = false
+	_update_ui_panels_visibility()
 	_set_mode(EditorMode.BUILD)
 	_advance_interactive_tutorial(0)
+
+
+func _on_npc_arrived_destination(_target: Vector3) -> void:
+	if not _interactive_tutorial_active:
+		return
+	if _tutorial_step == 2:
+		if _interactive_banner != null:
+			_interactive_banner_icon.modulate = Color(0.3, 0.9, 0.6)
+			_interactive_banner_title.text = "🎯 新手任务 (3/6): 寻路抵达！"
+			_interactive_banner_sub.text = "✅ 人机已按物理规划成功抵达目标点！停留 2 秒即将进入下一阶段..."
+		await get_tree().create_timer(2.0).timeout
+		if _interactive_tutorial_active and _tutorial_step == 2:
+			_advance_interactive_tutorial(3)
 
 
 func _advance_interactive_tutorial(step: int) -> void:

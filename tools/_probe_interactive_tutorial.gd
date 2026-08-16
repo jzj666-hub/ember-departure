@@ -60,6 +60,7 @@ func _test_interactive_tutorial_flow() -> void:
 	# Start interactive tutorial
 	editor.call("start_interactive_tutorial")
 	_ok("Interactive tutorial active", bool(editor.get("_interactive_tutorial_active")))
+	_ok("Tutorial starts in immersive mode (panels hidden)", not bool(editor.get("_ui_panels_visible")))
 	_ok("Step 0 active", editor.get("_tutorial_step") == 0)
 
 	var banner: PanelContainer = editor.get("_interactive_banner")
@@ -73,9 +74,13 @@ func _test_interactive_tutorial_flow() -> void:
 	editor.call("_remove_block_at", Vector3i(2, 1, 2))
 	_ok("Removing block advances to Step 2", editor.get("_tutorial_step") == 2)
 
-	# --- Step 2 -> Step 3: NPC Pathfinding with Shift+LMB ---
+	# --- Step 2: NPC Pathfinding with Shift+LMB ---
 	editor.call("_recalculate_npc_path", Vector3(5, 0.2, 5))
-	_ok("NPC pathfinding test advances to Step 3", editor.get("_tutorial_step") == 3)
+	_ok("Recalculating path in Step 2 keeps player observing movement", editor.get("_tutorial_step") == 2)
+
+	# Simulate NPC arrival callback
+	await editor.call("_on_npc_arrived_destination", Vector3(5, 0.2, 5))
+	_ok("NPC arrival and 2s stay advances to Step 3", editor.get("_tutorial_step") == 3)
 
 	# Check that 2 glowing platforms were spawned in Step 3
 	var blocks: Dictionary = editor.get("_blocks")
