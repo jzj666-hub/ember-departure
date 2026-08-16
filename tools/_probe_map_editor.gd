@@ -7,6 +7,7 @@ const BlockRegistryScript = preload("res://scripts/block_registry.gd")
 const MapDataScript = preload("res://scripts/map_data.gd")
 const SpecialPathRecorderScript = preload("res://scripts/special_path_recorder.gd")
 const MapEditorScript = preload("res://scripts/map_editor.gd")
+const NavGridScript = preload("res://scripts/nav_grid.gd")
 
 var _failures := 0
 
@@ -97,22 +98,18 @@ func _test_map_data() -> void:
 	DirAccess.remove_absolute(test_file)
 
 func _test_special_path_straight_line_check() -> void:
-	print("\n--- Test 3: SpecialPathRecorder Straight-Line Math ---")
+	print("\n--- Test 3: SpecialPathRecorder Freeform Trajectory & Deviation Math ---")
 	var a := Vector2(0.0, 0.0)
-	var b := Vector2(0.0, 6.0) # straight line along Z axis
+	var b := Vector2(0.0, 6.0)
 	var line_len := (b - a).length()
 
 	# Perfectly straight point on line (0, 3)
 	var d1: float = SpecialPathRecorderScript._point_to_line_dist(Vector2(0.0, 3.0), a, b, line_len)
 	_ok("Straight line point has zero deviation", is_zero_approx(d1), "Deviation: %.4f" % d1)
 
-	# Slight jitter within tolerance (0.05, 3)
-	var d2: float = SpecialPathRecorderScript._point_to_line_dist(Vector2(0.05, 3.0), a, b, line_len)
-	_ok("Small jitter within tolerance", d2 <= SpecialPathRecorderScript.STRAIGHT_LINE_TOLERANCE, "Deviation: %.4f" % d2)
-
-	# Large curve outside tolerance (0.45, 3)
+	# Curved point (0.45, 3)
 	var d3: float = SpecialPathRecorderScript._point_to_line_dist(Vector2(0.45, 3.0), a, b, line_len)
-	_ok("Large deviation exceeds tolerance", d3 > SpecialPathRecorderScript.STRAIGHT_LINE_TOLERANCE, "Deviation: %.4f" % d3)
+	_ok("Curved offset detected accurately", d3 > 0.4, "Deviation: %.4f" % d3)
 
 	# Diagonal line from (1, 1) to (5, 5)
 	var a_diag := Vector2(1.0, 1.0)
@@ -122,11 +119,11 @@ func _test_special_path_straight_line_check() -> void:
 	_ok("Diagonal straight point has zero deviation", is_zero_approx(d_diag_straight), "Deviation: %.4f" % d_diag_straight)
 
 	var d_diag_curved: float = SpecialPathRecorderScript._point_to_line_dist(Vector2(3.0, 3.5), a_diag, b_diag, diag_len)
-	_ok("Diagonal offset detected", d_diag_curved > 0.3, "Deviation: %.4f" % d_diag_curved)
+	_ok("Diagonal curved offset calculated properly", d_diag_curved > 0.3, "Deviation: %.4f" % d_diag_curved)
 
 func _test_nav_grid_special_path() -> void:
 	print("\n--- Test 4: NavGrid Special Path Integration ---")
-	var nav := NavGrid.new()
+	var nav := NavGridScript.new()
 	nav.set_bounds(20, 8)
 	# Platform A at (0, 0, 0), Platform B at (0, 0, 6) -> 5-cell void between them
 	# Standard physics cap budget is ~4m, so 5m void cannot be jumped by default
@@ -152,13 +149,35 @@ func _test_nav_grid_special_path() -> void:
 	var moves: PackedInt32Array = res_special.moves
 	var found_special_move := false
 	for m in moves:
-		if m == NavGrid.Move.SPECIAL_JUMP:
+		if m == NavGridScript.Move.SPECIAL_JUMP:
 			found_special_move = true
 			break
 	_ok("Move classified as Move.SPECIAL_JUMP", found_special_move)
 
 	var valid := nav.is_path_valid(res_special.points)
 	_ok("Path with special jump is valid", valid)
+
+	# Multi-path registration test: Add second path B->C
+	var cell_c := Vector3i(6, 1, 6)
+	nav.set_block(Vector3i(6, 0, 6), true)
+	nav.add_special_path({
+		"id": "special_jump_bc",
+		"from": [cell_b.x, cell_b.y, cell_b.z],
+		"to": [cell_c.x, cell_c.y, cell_c.z],
+		"trajectory": [{"p": [0, 1, 6]}, {"p": [3, 2, 6]}, {"p": [6, 1, 6]}],
+	})
+	_ok("Two distinct special paths stored", nav.get_special_paths().size() == 2)
+
+	# Replacement test: re-record A->B with updated trajectory
+	nav.add_special_path({
+		"id": "special_jump_ab_v2",
+		"from": [cell_a.x, cell_a.y, cell_a.z],
+		"to": [cell_b.x, cell_b.y, cell_b.z],
+		"trajectory": [{"p": [0, 1, 0]}, {"p": [0, 2, 3]}, {"p": [0, 1, 6]}],
+	})
+	_ok("Replacement maintains 2 total paths", nav.get_special_paths().size() == 2)
+	var ab_updated := nav.get_special_path_between(cell_a, cell_b)
+	_ok("Updated trajectory retrieved", str(ab_updated.get("id")) == "special_jump_ab_v2")
 
 func _test_map_editor_scene() -> void:
 	print("\n--- Test 5: MapEditor Scene Instantiation ---")

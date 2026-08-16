@@ -183,7 +183,7 @@ const REVERSED := {
 ## How hard the body chases its target speed, per second.
 @export var acceleration := 14.0
 ## Radians per second the character turns towards the camera while moving.
-@export var turn_rate := 12.0
+@export var turn_rate := 24.0
 ## How hard the blend position chases the body, per second. Below `acceleration`
 ## on purpose: the pose arriving a little after the movement reads as weight.
 @export var blend_rate := 10.0
@@ -1149,9 +1149,8 @@ func _drive_locomotion(delta: float) -> void:
 	var crouching := _intent.crouch
 
 	if input == Vector2.ZERO:
-		var settle: float = 1.0 - exp(-delta * acceleration)
-		velocity.x = lerpf(velocity.x, 0.0, settle)
-		velocity.z = lerpf(velocity.z, 0.0, settle)
+		velocity.x = 0.0
+		velocity.z = 0.0
 		state = State.CROUCH if crouching else State.IDLE
 		_fold(crouching, delta)
 		if camera != null and bool(camera.get("is_first_person")):

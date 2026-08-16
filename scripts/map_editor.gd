@@ -732,28 +732,42 @@ func _redraw_special_paths() -> void:
 		return
 
 	_special_paths_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	for p in paths:
+	for p_idx in range(paths.size()):
+		var p: Dictionary = paths[p_idx]
 		var traj: Array = p.get("trajectory", [])
+		var hue: float = fposmod(float(p_idx) * 0.31, 1.0)
+		var base_col := Color.from_hsv(hue, 0.85, 0.95, 0.95)
 		if traj.size() >= 2:
 			for i in range(1, traj.size()):
-				var p1: Array = traj[i - 1]["p"]
-				var p2: Array = traj[i]["p"]
-				var col := Color(1.0, 0.2, 0.8, 0.9)
+				var s1 = traj[i - 1]
+				var s2 = traj[i]
+				var p1 := _vec3_from_raw(s1.get("p") if s1 is Dictionary else s1)
+				var p2 := _vec3_from_raw(s2.get("p") if s2 is Dictionary else s2)
+				var is_air := not bool(s2.get("grounded", true)) if s2 is Dictionary else true
+				var col := base_col if is_air else base_col.lerp(Color(0.2, 1.0, 0.5), 0.45)
 				_special_paths_mesh.surface_set_color(col)
-				_special_paths_mesh.surface_add_vertex(Vector3(p1[0], p1[1], p1[2]))
+				_special_paths_mesh.surface_add_vertex(p1 + Vector3(0.0, 0.06, 0.0))
 				_special_paths_mesh.surface_set_color(col)
-				_special_paths_mesh.surface_add_vertex(Vector3(p2[0], p2[1], p2[2]))
+				_special_paths_mesh.surface_add_vertex(p2 + Vector3(0.0, 0.06, 0.0))
 		else:
 			var from_c: Vector3i = NavGrid._parse_coord(p.get("from"))
 			var to_c: Vector3i = NavGrid._parse_coord(p.get("to"))
-			var f1 := NavGrid.foot(from_c) + Vector3(0, 0.2, 0)
-			var f2 := NavGrid.foot(to_c) + Vector3(0, 0.2, 0)
-			var col := Color(0.9, 0.3, 1.0, 0.85)
-			_special_paths_mesh.surface_set_color(col)
+			var f1 := NavGrid.foot(from_c) + Vector3(0.0, 0.15, 0.0)
+			var f2 := NavGrid.foot(to_c) + Vector3(0.0, 0.15, 0.0)
+			_special_paths_mesh.surface_set_color(base_col)
 			_special_paths_mesh.surface_add_vertex(f1)
-			_special_paths_mesh.surface_set_color(col)
+			_special_paths_mesh.surface_set_color(base_col)
 			_special_paths_mesh.surface_add_vertex(f2)
 	_special_paths_mesh.surface_end()
+
+
+static func _vec3_from_raw(raw: Variant) -> Vector3:
+	if raw is Vector3:
+		return raw
+	if raw is Array and (raw as Array).size() >= 3:
+		var a: Array = raw
+		return Vector3(float(a[0]), float(a[1]), float(a[2]))
+	return Vector3.ZERO
 
 
 # --- Pathfinding & Testing --------------------------------------------------
@@ -772,7 +786,12 @@ func _recalculate_npc_path(target: Vector3) -> void:
 	_draw_path(points, result.moves)
 	_beacon_instance.global_position = target
 	_beacon_instance.visible = true
-	_set_status("已规划路径：包含 %d 个航路点 (按 TAB 可切至测试操控)" % points.size())
+	var links: Dictionary = result.get("special_links", {})
+	if links.is_empty():
+		_set_status("已规划路径：包含 %d 个航路点 (按 TAB 可切至测试操控)" % points.size())
+	else:
+		_set_status("已规划路径：包含 %d 个航路点，其中 %d 段将逐帧复刻录制的特殊跳跃" % [
+			points.size(), links.size()])
 
 
 func _on_repath_requested(from_pos: Vector3, target: Vector3) -> void:
@@ -1172,10 +1191,13 @@ func _refresh_special_paths_ui() -> void:
 		var card_vbox := VBoxContainer.new()
 		card.add_child(card_vbox)
 
+		var traj_len: int = (p_dict.get("trajectory", []) as Array).size()
+		var dur: float = float(p_dict.get("duration", 0.0))
 		var lbl := Label.new()
-		lbl.text = "路径 (%d,%d,%d) -> (%d,%d,%d)" % [
+		lbl.text = "路径 (%d,%d,%d) -> (%d,%d,%d)\n  %d 帧 · %.2fs" % [
 			from_arr[0], from_arr[1], from_arr[2],
-			to_arr[0], to_arr[1], to_arr[2]
+			to_arr[0], to_arr[1], to_arr[2],
+			traj_len, dur
 		]
 		lbl.add_theme_font_size_override("font_size", 11)
 		card_vbox.add_child(lbl)

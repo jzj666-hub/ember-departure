@@ -246,7 +246,17 @@ var _dirty := true
 # --- configuration ----------------------------------------------------------
 
 ## Registers a custom recorded special jump connection between two cells.
+## If an existing path between the same cells or with the same id exists, it is replaced.
 func add_special_path(path_dict: Dictionary) -> void:
+	var from_c := _parse_coord(path_dict.get("from"))
+	var to_c := _parse_coord(path_dict.get("to"))
+	var path_id := str(path_dict.get("id", ""))
+	for i in range(_special_paths.size() - 1, -1, -1):
+		var old_id := str(_special_paths[i].get("id", ""))
+		var f := _parse_coord(_special_paths[i].get("from"))
+		var t := _parse_coord(_special_paths[i].get("to"))
+		if (path_id != "" and old_id == path_id) or (f == from_c and t == to_c):
+			_special_paths.remove_at(i)
 	_special_paths.append(path_dict)
 	_dirty = true
 	grid_changed.emit()
@@ -283,7 +293,8 @@ func get_special_paths() -> Array:
 
 ## Finds special path matching from_cell -> to_cell.
 func get_special_path_between(from_cell: Vector3i, to_cell: Vector3i) -> Dictionary:
-	for p in _special_paths:
+	for i in range(_special_paths.size() - 1, -1, -1):
+		var p: Dictionary = _special_paths[i]
 		var f := _parse_coord(p.get("from"))
 		var t := _parse_coord(p.get("to"))
 		if f == from_cell and t == to_cell:

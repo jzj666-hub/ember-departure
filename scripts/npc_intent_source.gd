@@ -121,7 +121,56 @@ var _jump_start_pos := Vector3.ZERO
 var _jump_start_speed := 0.0
 var _jump_air_time := 0.0
 var _zero_jump_centered := false
+
+## Landing re-centring. See _begin_landing_center().
+## Offset from the landing cell's centre a landing has to beat, metres.
+const LAND_CENTER_TOL := 0.15
+## Offset at which the correction counts as done, metres.
+const CENTER_ARRIVE := 0.08
+## Seconds the correction may take before it is given up on.
+const CENTER_MAX := 1.2
+
 var _is_centering := false
+var _center_target := Vector3.ZERO
+var _center_timer := 0.0
+## A repath held back until the correction finishes.
+var _center_repath := false
+
+## Recorded special-path replay. See _drive_special_replay().
+enum ReplayPhase { NONE, WALK_TO_REST, TURN_TO_HEADING, REPLAYING, SETTLE }
+## Horizontal distance at which the recorded rest point counts as reached, m.
+const REPLAY_REST_TOL := 0.1
+## Yaw error at which the recorded start facing counts as matched, radians.
+const REPLAY_YAW_TOL := 0.02
+## Distance from the rest point under which the walk-in drops to a walk, metres.
+const REPLAY_WALK_SLOW := 1.0
+## Seconds a phase may take before the recording is abandoned for ordinary
+## gap-jump steering.
+const REPLAY_WALK_MAX := 6.0
+const REPLAY_TURN_MAX := 2.0
+const REPLAY_SETTLE_MAX := 3.0
+## Replays of one recording before ordinary steering takes the leg instead.
+const REPLAY_MAX_ATTEMPTS := 3
+
+## Waypoint index -> recorded path dict, from NavGrid.find_path().special_links.
+var _special_links := {}
+var _replay_phase := ReplayPhase.NONE
+var _replay_traj: Array = []
+## Next tape frame to feed. One recorded frame per physics frame: the recorder
+## sampled on the same tick, so frame index and elapsed time are one clock.
+var _replay_frame := 0
+var _replay_timer := 0.0
+## Waypoint index the replay is aimed at. -1 when none is in hand.
+var _replay_index := -1
+var _replay_done_index := -1
+var _replay_rest := Vector3.ZERO
+var _replay_heading := 0.0
+## Seconds off the ground since the tape's jump frame went in.
+var _replay_air := 0.0
+## The tape's jump frame has been played.
+var _replay_fired := false
+## Recorded path id -> replays started. Bounds retry after a short landing.
+var _replay_attempts := {}
 
 ## Automated task sequence state.
 var _task_queue: Array = []
@@ -150,9 +199,11 @@ func _on_grid_changed() -> void:
 		call_deferred("_deferred_repath")
 
 
+## A replay owns its own timing; re-planning under it would swap the tape out
+## mid-arc. The landing repaths anyway, so the grid change is only deferred.
 func _deferred_repath() -> void:
 	_repath_queued = false
-	if _has_target and not _is_climbing:
+	if _has_target and not _is_climbing and not _replay_active():
 		_repath_cooldown = 0.0
 		repath_requested.emit(_last_body_pos, _target_pos)
 	elif _has_target and _is_climbing:
@@ -165,20 +216,25 @@ func set_path(path: PackedVector3Array, target: Vector3) -> void:
 
 
 ## Install a NavGrid plan. `moves` may be empty; `complete` false means the path
-## stops at the nearest reachable cell instead of `target`.
+## stops at the nearest reachable cell instead of `target`. `special_links` maps
+## a waypoint index to the recording its leg is replayed from.
 ## Post: _path_index == 0, obstruction state cleared.
 func set_plan(path: PackedVector3Array, moves: PackedInt32Array, target: Vector3,
-		complete := true) -> void:
+		complete := true, special_links := {}) -> void:
 	_path = path
 	_moves = moves
+	_special_links = special_links
 	_target_pos = target
 	_path_index = 0
 	_has_target = not _path.is_empty()
 	_plan_complete = complete
 	_reset_obstruction()
 	_reset_jump()
+	_reset_replay()
+	_replay_done_index = -1
 	_zero_jump_centered = false
 	_is_centering = false
+	_center_repath = false
 	_jump_tracking = false
 	_jump_air_time = 0.0
 
@@ -188,19 +244,25 @@ func set_plan_result(result: Dictionary) -> void:
 	set_plan(result.get("points", PackedVector3Array()),
 		result.get("moves", PackedInt32Array()),
 		result.get("goal", Vector3.ZERO),
-		bool(result.get("complete", true)))
+		bool(result.get("complete", true)),
+		result.get("special_links", {}))
 
 
 ## Clear current navigation target.
 func clear_target() -> void:
 	_path.clear()
 	_moves.clear()
+	_special_links = {}
 	_path_index = 0
 	_has_target = false
 	_reset_obstruction()
 	_reset_jump()
+	_reset_replay()
+	_replay_done_index = -1
+	_replay_attempts.clear()
 	_zero_jump_centered = false
 	_is_centering = false
+	_center_repath = false
 	_jump_tracking = false
 	_jump_air_time = 0.0
 
@@ -220,6 +282,23 @@ func _reset_jump() -> void:
 	_jump_timer = 0.0
 	_coyote_pending = false
 	_coyote_timer = 0.0
+
+
+## Drops the tape in hand. Leaves _replay_done_index alone: it is what stops the
+## leg just replayed from being picked up again on the very next frame.
+func _reset_replay() -> void:
+	_replay_phase = ReplayPhase.NONE
+	_replay_traj = []
+	_replay_frame = 0
+	_replay_timer = 0.0
+	_replay_index = -1
+	_replay_air = 0.0
+	_replay_fired = false
+
+
+## A recording is being walked into, aligned to or played back.
+func _replay_active() -> bool:
+	return _replay_phase != ReplayPhase.NONE
 
 
 ## Check if navigation target is active.
@@ -453,10 +532,15 @@ func poll(body: Node, delta: float, intent: CharacterIntent) -> void:
 		elif _jump_air_time >= AIRBORNE_GRACE:
 			_jump_tracking = false
 			var horiz_disp := Vector2(body_pos.x - _jump_start_pos.x, body_pos.z - _jump_start_pos.z).length()
-			if _jump_start_speed < 0.1 and horiz_disp < 0.25 and not _zero_jump_centered:
+			# A replay lands on its own terms - see _finish_special_replay().
+			if _replay_active():
+				pass
+			elif _jump_start_speed < 0.1 and horiz_disp < 0.25 and not _zero_jump_centered:
+				# Jumped straight up and got nowhere: it was standing on a rim.
+				# Square up before the leg is tried again.
 				_zero_jump_centered = true
-				_is_centering = true
-			elif _has_target:
+				_begin_landing_center(body_pos, false)
+			elif _has_target and not _begin_landing_center(body_pos, true):
 				_repath_cooldown = 0.1
 				repath_requested.emit(body_pos, _target_pos)
 	elif not grounded and state_val == PlayerController.State.JUMPING:
@@ -495,11 +579,16 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 		_finish()
 		return
 
+	var grounded: bool = char_body == null or char_body.is_on_floor()
+
+	# A recording owns every frame of its own run-up and arc, so it is asked
+	# before anything below can repath, steer or re-time it.
+	if _drive_special_replay(char_body, body_pos, delta, intent, grounded):
+		return
+
 	if _nav_grid != null and not _nav_grid.is_path_valid(_path, _path_index) and _repath_cooldown <= 0.0:
 		_repath_cooldown = 0.5
 		repath_requested.emit(body_pos, _target_pos)
-
-	var grounded: bool = char_body == null or char_body.is_on_floor()
 
 	# A committed arc owns the frame. Consuming its waypoint from mid-air would
 	# hand the body back to ordinary steering while it is still flying, and
@@ -513,24 +602,31 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 		_jump_phase = JumpPhase.NONE
 		_jump_done_index = _path_index
 		_repath_cooldown = 0.0
-		if _has_target:
+		# Square up on the landing cell before the next leg is planned: a body
+		# still on the rim reads as about to fall off it, and plans a hurried
+		# take-off it has no runway for.
+		if _has_target and not _is_centering and not _begin_landing_center(body_pos, true):
 			_repath_cooldown = 0.1
 			repath_requested.emit(body_pos, _target_pos)
 
 	if _is_centering:
-		var center := Vector3(floor(body_pos.x) + 0.5, body_pos.y, floor(body_pos.z) + 0.5)
-		var to_center := Vector3(center.x - body_pos.x, 0.0, center.z - body_pos.z)
+		_center_timer += delta
+		var to_center := Vector3(_center_target.x - body_pos.x, 0.0, _center_target.z - body_pos.z)
 		var dist_to_center := to_center.length()
-		if dist_to_center <= 0.08:
-			_is_centering = false
-			_reset_jump()
-		else:
-			var wanted_center := to_center / dist_to_center
-			var dir := _steer(char_body, body_pos, wanted_center, delta)
+		if dist_to_center > CENTER_ARRIVE and _center_timer < CENTER_MAX:
+			var dir := _steer(char_body, body_pos, to_center / dist_to_center, delta)
 			intent.heading = atan2(dir.x, dir.z)
 			intent.move = Vector2(0.0, 1.0)
 			intent.run = false
 			return
+		_is_centering = false
+		_reset_jump()
+		if _center_repath:
+			_center_repath = false
+			if _has_target:
+				_repath_cooldown = 0.1
+				repath_requested.emit(body_pos, _target_pos)
+				return
 
 	var wp := _path[_path_index]
 	var flat := Vector3(wp.x - body_pos.x, 0.0, wp.z - body_pos.z)
@@ -596,6 +692,202 @@ func _drive_flight(intent: CharacterIntent) -> void:
 	intent.move = Vector2.ZERO
 	intent.run = false
 	_stuck_time = 0.0
+
+
+# --- landing re-centring ----------------------------------------------------
+
+## Starts a walk to the centre of the cell just landed on when the landing sat
+## near its rim. `then_repath` holds the leg's repath back until the correction
+## finishes, so the next plan is made from the middle of the block rather than
+## from its edge.
+## Pre: body grounded. Post: _is_centering iff true was returned.
+func _begin_landing_center(body_pos: Vector3, then_repath: bool) -> bool:
+	# Landed on the goal's own cell: the point to stand on there is the one the
+	# caller picked, not the cell centre, and nothing follows it to line up for.
+	# The test is the cell rather than the waypoint index - a straight run is one
+	# leg however many cells long, so the last index is reached early.
+	if not _path.is_empty():
+		var goal := _path[_path.size() - 1]
+		if Vector2i(int(floor(goal.x)), int(floor(goal.z))) \
+				== Vector2i(int(floor(body_pos.x)), int(floor(body_pos.z))):
+			return false
+	var center := _cell_center(body_pos)
+	if Vector2(center.x - body_pos.x, center.z - body_pos.z).length() <= LAND_CENTER_TOL:
+		return false
+	_center_target = center
+	_center_timer = 0.0
+	_center_repath = then_repath
+	_is_centering = true
+	return true
+
+
+## Centre of the cell the body stands in, at the body's own height.
+func _cell_center(pos: Vector3) -> Vector3:
+	if _nav_grid != null:
+		var node := _nav_grid.standing_node(pos)
+		if node != NavGrid.NO_CELL:
+			var f := NavGrid.foot(node)
+			return Vector3(f.x, pos.y, f.z)
+	return Vector3(floor(pos.x) + 0.5, pos.y, floor(pos.z) + 0.5)
+
+
+# --- recorded special-path replay -------------------------------------------
+
+## Leg `idx` is crossed by replaying a recording rather than by a planned arc.
+func _leg_is_special(idx: int) -> bool:
+	if idx <= 0 or idx >= _path.size():
+		return false
+	if idx == _replay_done_index:
+		return false
+	return _special_links.has(idx)
+
+
+## Replays a recorded special path in place of ordinary steering. Returns true
+## when it has written this frame's intent and nothing else may.
+##
+## The recording is a tape of what the player's hands did, one entry per physics
+## frame, from a standstill through the run-up to the landing. Reproducing the
+## take-off therefore means reproducing the state the body was in when it left
+## the ground, which means starting from the same place, facing the same way and
+## feeding the same keys on the same frames - hence the two phases before the
+## tape rolls. Phases fall through within one frame, so none is spent idling on
+## a transition.
+func _drive_special_replay(char_body: CharacterBody3D, body_pos: Vector3,
+		delta: float, intent: CharacterIntent, grounded: bool) -> bool:
+	if _replay_phase == ReplayPhase.NONE and not _begin_special_replay():
+		return false
+
+	_replay_timer += delta
+	_stuck_time = 0.0
+	if not grounded:
+		_replay_air += delta
+
+	if _replay_phase == ReplayPhase.WALK_TO_REST:
+		var flat := Vector3(_replay_rest.x - body_pos.x, 0.0, _replay_rest.z - body_pos.z)
+		var dist := flat.length()
+		if dist > REPLAY_REST_TOL:
+			if _replay_timer >= REPLAY_WALK_MAX:
+				_abort_special_replay()
+				return false
+			# Steered straight rather than through _steer(): the walk-in is a couple
+			# of metres on the block already stood on, and _steer()'s stuck handling
+			# would repath out from under the tape.
+			intent.heading = atan2(flat.x, flat.z)
+			intent.move = Vector2(0.0, 1.0)
+			intent.run = _run and dist > REPLAY_WALK_SLOW
+			return true
+		_replay_phase = ReplayPhase.TURN_TO_HEADING
+		_replay_timer = 0.0
+
+	if _replay_phase == ReplayPhase.TURN_TO_HEADING:
+		# Asking for no movement stops the body dead - see
+		# PlayerController._drive_locomotion() - which is also why the turn is
+		# written onto the rotation directly: a standing body does not chase the
+		# intent's heading in third person, so there is no other way to turn on
+		# the spot without travelling.
+		intent.move = Vector2.ZERO
+		intent.run = false
+		intent.heading = _replay_heading
+		if char_body != null:
+			char_body.rotation.y = rotate_toward(char_body.rotation.y, _replay_heading,
+				_num(char_body, "turn_rate", 24.0) * delta)
+			if absf(angle_difference(char_body.rotation.y, _replay_heading)) > REPLAY_YAW_TOL \
+					and _replay_timer < REPLAY_TURN_MAX:
+				return true
+		_replay_phase = ReplayPhase.REPLAYING
+		_replay_frame = 0
+		_replay_timer = 0.0
+		_replay_air = 0.0
+
+	if _replay_phase == ReplayPhase.REPLAYING:
+		if _replay_fired and grounded and _replay_air >= AIRBORNE_GRACE:
+			_finish_special_replay(body_pos, intent)
+			return true
+		if _replay_frame < _replay_traj.size():
+			var sample: Dictionary = _replay_traj[_replay_frame]
+			_replay_frame += 1
+			var mv: Array = sample.get("move", [0.0, 0.0])
+			intent.move = Vector2(float(mv[0]), float(mv[1])).limit_length(1.0)
+			intent.heading = float(sample.get("heading", _replay_heading))
+			intent.run = bool(sample.get("run", false))
+			if bool(sample.get("jump", false)):
+				request_jump()
+				_replay_fired = true
+			return true
+		_replay_phase = ReplayPhase.SETTLE
+		_replay_timer = 0.0
+
+	# Tape run out with the body still in the air: ask for nothing, which freezes
+	# the horizontal velocity the arc was launched with. See _drive_flight().
+	intent.move = Vector2.ZERO
+	intent.run = false
+	# Grounded with airtime behind it is the landing. Grounded without any is a
+	# take-off that never happened - a jump eaten by the climb probe, say - and
+	# waiting out the full settle for one would stall the plan.
+	if (grounded and (_replay_air >= AIRBORNE_GRACE or _replay_timer >= 0.3)) \
+			or _replay_timer >= REPLAY_SETTLE_MAX:
+		_finish_special_replay(body_pos, intent)
+	return true
+
+
+## Picks up the recording for the leg in hand.
+## Post: _replay_phase past NONE iff true was returned.
+func _begin_special_replay() -> bool:
+	if not _leg_is_special(_path_index):
+		return false
+	var data: Dictionary = _special_links[_path_index]
+	var traj: Array = data.get("trajectory", [])
+	if traj.size() < 2:
+		return false
+	# A recording that keeps landing short would otherwise be re-walked forever:
+	# every landing repaths, and the new plan hands back the same leg.
+	var path_id := str(data.get("id", "?"))
+	var tries := int(_replay_attempts.get(path_id, 0))
+	if tries >= REPLAY_MAX_ATTEMPTS:
+		return false
+	_replay_attempts[path_id] = tries + 1
+
+	var first: Dictionary = traj[0]
+	_replay_traj = traj
+	_replay_rest = _to_vec3(data.get("rest_pos"), _to_vec3(first.get("p"), _path[_path_index - 1]))
+	_replay_heading = float(data.get("rest_heading", first.get("heading", 0.0)))
+	_replay_index = _path_index
+	_replay_frame = 0
+	_replay_timer = 0.0
+	_replay_air = 0.0
+	_replay_fired = false
+	_replay_phase = ReplayPhase.WALK_TO_REST
+	return true
+
+
+## Hands the leg back to ordinary steering once the tape is done with it.
+func _finish_special_replay(body_pos: Vector3, intent: CharacterIntent) -> void:
+	_replay_done_index = _replay_index
+	_jump_done_index = _replay_index
+	_reset_replay()
+	intent.move = Vector2.ZERO
+	intent.run = false
+	if _has_target and not _is_centering and not _begin_landing_center(body_pos, true):
+		_repath_cooldown = 0.1
+		repath_requested.emit(body_pos, _target_pos)
+
+
+## Gives up on the recording. The leg is still a gap jump, so _drive_jump() takes
+## it from here - a recorded arc always counts as an extreme one, see
+## _is_extreme_gap_jump().
+func _abort_special_replay() -> void:
+	_replay_done_index = _replay_index
+	_reset_replay()
+
+
+## Vector3 out of a recorded [x, y, z] array. Post: `fallback` when unreadable.
+static func _to_vec3(raw: Variant, fallback: Vector3) -> Vector3:
+	if raw is Vector3:
+		return raw
+	if raw is Array and (raw as Array).size() >= 3:
+		var a: Array = raw
+		return Vector3(float(a[0]), float(a[1]), float(a[2]))
+	return fallback
 
 
 ## Runs the gap-jump legs of the plan. Returns true when it has written this
