@@ -172,6 +172,9 @@ var _replay_fired := false
 ## Recorded path id -> replays started. Bounds retry after a short landing.
 var _replay_attempts := {}
 
+## Direct line-of-sight chase mode (bypasses A* search and arrival slowing).
+var _direct_chase_mode := false
+
 ## Automated task sequence state.
 var _task_queue: Array = []
 var _current_task_index := -1
@@ -227,6 +230,7 @@ func set_plan(path: PackedVector3Array, moves: PackedInt32Array, target: Vector3
 	_target_pos = target
 	_path_index = 0
 	_has_target = not _path.is_empty()
+	_direct_chase_mode = false
 	_plan_complete = complete
 	_reset_obstruction()
 	_reset_jump()
@@ -248,6 +252,18 @@ func set_plan_result(result: Dictionary) -> void:
 		result.get("special_links", {}))
 
 
+## Direct line-of-sight chase mode straight towards target_pos (bypasses A* search and arrival slowing).
+func direct_chase(target_pos: Vector3) -> void:
+	_has_target = true
+	_target_pos = target_pos
+	_direct_chase_mode = true
+	_path = PackedVector3Array([target_pos])
+	_path_index = 0
+	_run = true
+	_plan_complete = true
+	_reset_obstruction()
+
+
 ## Clear current navigation target.
 func clear_target() -> void:
 	_path.clear()
@@ -255,6 +271,7 @@ func clear_target() -> void:
 	_special_links = {}
 	_path_index = 0
 	_has_target = false
+	_direct_chase_mode = false
 	_reset_obstruction()
 	_reset_jump()
 	_reset_replay()
@@ -597,6 +614,17 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 	# A recording owns every frame of its own run-up and arc, so it is asked
 	# before anything below can repath, steer or re-time it.
 	if _drive_special_replay(char_body, body_pos, delta, intent, grounded):
+		return
+
+	if _direct_chase_mode:
+		var flat := Vector3(_target_pos.x - body_pos.x, 0.0, _target_pos.z - body_pos.z)
+		var horiz := flat.length()
+		if horiz > 0.02:
+			var wanted := flat / horiz
+			var dir := _steer(char_body, body_pos, wanted, delta)
+			intent.heading = atan2(dir.x, dir.z)
+			intent.move = Vector2(0.0, 1.0)
+			intent.run = true
 		return
 
 	if _nav_grid != null and not _nav_grid.is_path_valid(_path, _path_index) and _repath_cooldown <= 0.0:

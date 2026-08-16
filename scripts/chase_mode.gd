@@ -15,8 +15,9 @@ const MENU_SCENE := "res://scenes/main_menu.tscn"
 const GROUND_HALF := 25.0
 const MAX_BLOCK_Y := 12
 const ESCAPE_COUNTDOWN_TIME := 15.0
-const FAST_REPATH_INTERVAL := 0.15
-const SLOW_REPATH_INTERVAL := 0.90
+const FAST_REPATH_INTERVAL := 0.06
+const SLOW_REPATH_INTERVAL := 0.25
+const LOS_DELAY_SECONDS := 0.20
 const CATCH_DISTANCE_THRESHOLD := 1.05
 
 enum State {
@@ -54,6 +55,7 @@ var _npc_char_idx := 1
 var _repath_timer := 0.0
 var _player_was_jumping_or_climbing := false
 var _deferred_repath_pending := false
+var _player_history: Array[Dictionary] = []
 
 var _path_mesh_instance: MeshInstance3D
 var _path_immediate_mesh: ImmediateMesh
@@ -138,6 +140,35 @@ func _physics_process(delta: float) -> void:
 				_trigger_game_over()
 				return
 
+			# Track player position history for 200ms delayed chase
+			var now := float(Time.get_ticks_msec()) * 0.001
+			_player_history.append({"time": now, "pos": _player.global_position})
+			while _player_history.size() > 1 and (now - _player_history[0].time) > 1.2:
+				_player_history.pop_front()
+
+			# Rule 4 Check: If NPC is currently jumping, climbing, or in air, do not interrupt!
+			var npc_busy := _npc_intent.is_performing_jump_or_climb() or not _npc.is_on_floor()
+
+			if not npc_busy:
+				# Check unobstructed Line-of-Sight with 200ms delay target
+				var delayed_target := _get_delayed_player_pos(LOS_DELAY_SECONDS)
+				var has_los := _has_clear_line_of_sight(_npc.global_position, delayed_target)
+
+				if has_los:
+					# Direct Sprint Mode (bypasses A* search to save CPU, direct sprint with 200ms delay!)
+					_npc_intent.direct_chase(delayed_target)
+					_target_beacon.global_position = delayed_target
+					_target_beacon.visible = true
+					_draw_npc_path(PackedVector3Array([_npc.global_position, delayed_target]))
+					_repath_timer = 0.0
+					_deferred_repath_pending = false
+					return
+
+				# If we had a deferred repath pending, execute it upon landing/becoming ready
+				if _deferred_repath_pending:
+					_deferred_repath_pending = false
+					_execute_npc_repath()
+
 			# Rule 3: Escaper Jump/Climb Landing Trigger
 			var player_grounded := _player.is_on_floor()
 			if not player_grounded:
@@ -157,11 +188,51 @@ func _physics_process(delta: float) -> void:
 			if _repath_timer >= interval:
 				_request_npc_repath(false)
 
-			# Rule 4: NPC airborne / jump / climb deferral execution on landing
-			var npc_busy := _npc_intent.is_performing_jump_or_climb() or not _npc.is_on_floor()
-			if not npc_busy and _deferred_repath_pending:
-				_deferred_repath_pending = false
-				_execute_npc_repath()
+
+# --- Line-of-Sight & Delay Math ---------------------------------------------
+
+func _get_delayed_player_pos(delay: float) -> Vector3:
+	if _player_history.is_empty():
+		return _player.global_position if _player != null else Vector3.ZERO
+	var target_t := (float(Time.get_ticks_msec()) * 0.001) - delay
+	for i in range(_player_history.size() - 1, -1, -1):
+		if _player_history[i].time <= target_t:
+			return _player_history[i].pos
+	return _player_history[0].pos
+
+
+func _has_clear_line_of_sight(from_pos: Vector3, to_pos: Vector3) -> bool:
+	if absf(from_pos.y - to_pos.y) > 0.85:
+		return false
+
+	var space_state := get_world_3d().direct_space_state
+
+	# Obstacle raycast at chest height
+	var ray_from := from_pos + Vector3(0.0, 0.8, 0.0)
+	var ray_to := to_pos + Vector3(0.0, 0.8, 0.0)
+	var query := PhysicsRayQueryParameters3D.create(ray_from, ray_to)
+	query.collide_with_areas = false
+	query.exclude = [_player.get_rid(), _npc.get_rid()] if _player and _npc else []
+	var hit := space_state.intersect_ray(query)
+	if not hit.is_empty():
+		return false
+
+	# Floor continuity raycast checks (ensure no pits/void in between)
+	var samples := 4
+	for i in range(1, samples):
+		var frac := float(i) / float(samples)
+		var sample_p := from_pos.lerp(to_pos, frac)
+		var down_query := PhysicsRayQueryParameters3D.create(
+			sample_p + Vector3(0.0, 0.4, 0.0),
+			sample_p + Vector3(0.0, -1.2, 0.0)
+		)
+		down_query.collide_with_areas = false
+		down_query.exclude = [_player.get_rid(), _npc.get_rid()] if _player and _npc else []
+		var down_hit := space_state.intersect_ray(down_query)
+		if down_hit.is_empty():
+			return false
+
+	return true
 
 
 # --- Repath Orchestration ---------------------------------------------------
@@ -633,7 +704,10 @@ func _update_active_chase_hud() -> void:
 	var p_cell := _nav.standing_node(_player.global_position)
 	var n_cell := _nav.standing_node(_npc.global_position)
 	var same_plat := _nav.is_same_flat_platform(n_cell, p_cell)
-	_status_detail_label.text = "追缉者寻路: %s" % ("同平台高频追踪" if same_plat else "跨障碍/高低差规划")
+	if _npc_intent != null and _npc_intent._direct_chase_mode:
+		_status_detail_label.text = "追缉者寻路: 直线无障碍冲锋 (200ms延迟/省算力)"
+	else:
+		_status_detail_label.text = "追缉者寻路: %s" % ("同平台高频追踪 (60ms)" if same_plat else "跨障碍/高低差规划 (250ms)")
 
 
 func _build_map_select_dialog() -> void:

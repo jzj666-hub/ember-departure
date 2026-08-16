@@ -62,7 +62,7 @@ func _test_same_flat_platform() -> void:
 
 
 func _test_npc_intent_action_state() -> void:
-	print("\n--- Test 2: NPCIntentSource.is_performing_jump_or_climb ---")
+	print("\n--- Test 2: NPCIntentSource Action State & Direct Chase ---")
 	var intent := NPCIntentSourceScript.new()
 
 	_ok("Fresh intent is not jumping or climbing", not intent.is_performing_jump_or_climb())
@@ -80,6 +80,14 @@ func _test_npc_intent_action_state() -> void:
 	intent._replay_phase = NPCIntentSourceScript.ReplayPhase.NONE
 
 	_ok("Restored intent returns false", not intent.is_performing_jump_or_climb())
+
+	# Test direct_chase mode
+	intent.direct_chase(Vector3(10.0, 0.0, 0.0))
+	_ok("direct_chase enables _direct_chase_mode", intent._direct_chase_mode)
+	_ok("direct_chase sets _has_target", intent._has_target)
+	var ci := CharacterIntent.new()
+	intent._drive_navigation(null, Vector3(0.0, 0.0, 0.0), 0.016, ci)
+	_ok("direct_chase outputs full forward sprint", ci.move == Vector2(0.0, 1.0) and ci.run)
 
 
 func _test_repath_timing_rules() -> void:
