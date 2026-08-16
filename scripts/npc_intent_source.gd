@@ -22,6 +22,12 @@ var _path := PackedVector3Array()
 var _moves := PackedInt32Array()
 ## Special path data dictionary keyed by path index.
 var _special_links := {}
+var _special_traj_active := false
+var _special_traj_time := 0.0
+var _special_traj_data := {}
+var _special_traj_takeoff_pos := Vector3.ZERO
+var _special_traj_landing_pos := Vector3.ZERO
+var _special_traj_jump_fired := false
 var _path_index := 0
 var _target_pos := Vector3.ZERO
 var _has_target := false
@@ -200,6 +206,10 @@ func clear_target() -> void:
 	_path.clear()
 	_moves.clear()
 	_special_links.clear()
+	_special_traj_active = false
+	_special_traj_time = 0.0
+	_special_traj_data.clear()
+	_special_traj_jump_fired = false
 	_path_index = 0
 	_has_target = false
 	_reset_obstruction()
@@ -225,6 +235,9 @@ func _reset_jump() -> void:
 	_jump_timer = 0.0
 	_coyote_pending = false
 	_coyote_timer = 0.0
+	_special_traj_active = false
+	_special_traj_time = 0.0
+	_special_traj_jump_fired = false
 
 
 ## Check if navigation target is active.
@@ -500,6 +513,21 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 		_finish()
 		return
 
+	if _special_traj_active:
+		if _drive_special_trajectory(char_body, body_pos, delta, intent):
+			return
+
+	if not _special_traj_active and _special_links.has(_path_index):
+		var sp_data: Dictionary = _special_links[_path_index]
+		var s_pos := _parse_vec3_helper(sp_data.get("start_pos"))
+		var t_pos := _parse_vec3_helper(sp_data.get("takeoff_pos"))
+		var trigger_pos := s_pos if s_pos != Vector3.ZERO else t_pos
+		var dist_to_trigger: float = body_pos.distance_to(trigger_pos)
+		if dist_to_trigger <= 0.65:
+			_start_special_trajectory(sp_data)
+			if _drive_special_trajectory(char_body, body_pos, delta, intent):
+				return
+
 	if _nav_grid != null and not _nav_grid.is_path_valid(_path, _path_index) and _repath_cooldown <= 0.0:
 		_repath_cooldown = 0.5
 		repath_requested.emit(body_pos, _target_pos)
@@ -577,6 +605,123 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 	intent.heading = atan2(dir.x, dir.z)
 	intent.move = Vector2(0.0, 1.0)
 	intent.run = _run and _avoid_left <= 0.0
+
+
+# --- Special Trajectory Playback --------------------------------------------
+
+func _start_special_trajectory(sp_data: Dictionary) -> void:
+	_special_traj_active = true
+	_special_traj_time = 0.0
+	_special_traj_data = sp_data
+	_special_traj_jump_fired = false
+	_special_traj_takeoff_pos = _parse_vec3_helper(sp_data.get("takeoff_pos"))
+	_special_traj_landing_pos = _parse_vec3_helper(sp_data.get("landing_pos"))
+
+
+func _drive_special_trajectory(char_body: CharacterBody3D, body_pos: Vector3, delta: float,
+		intent: CharacterIntent) -> bool:
+	_special_traj_time += delta
+	var traj: Array = _special_traj_data.get("trajectory", [])
+	var takeoff_time: float = float(_special_traj_data.get("takeoff_time", 0.0))
+	var duration: float = float(_special_traj_data.get("duration", 1.0))
+	var jump_heading: float = float(_special_traj_data.get("heading", 0.0))
+	var takeoff_pos: Vector3 = _special_traj_takeoff_pos
+
+	var sample: Dictionary = _sample_trajectory(traj, _special_traj_time)
+	var target_v: Vector3 = sample.get("v", Vector3.ZERO)
+	var phase: String = sample.get("phase", "runup")
+
+	# 1. Align orientation & sprint intent
+	intent.heading = jump_heading
+	intent.move = Vector2(0.0, 1.0)
+	intent.run = true
+	_stuck_time = 0.0
+
+	# 2. Match exact recorded horizontal trajectory velocity
+	if char_body != null:
+		char_body.rotation.y = jump_heading
+		char_body.velocity.x = target_v.x
+		char_body.velocity.z = target_v.z
+
+	# 3. Trigger takeoff
+	if not _special_traj_jump_fired:
+		var dist_to_takeoff: float = Vector2(takeoff_pos.x - body_pos.x, takeoff_pos.z - body_pos.z).length()
+		if _special_traj_time >= takeoff_time or phase == "airborne" or dist_to_takeoff <= 0.25:
+			request_jump()
+			_special_traj_jump_fired = true
+			if char_body != null:
+				var t_vel_arr: Array = _special_traj_data.get("takeoff_velocity", [target_v.x, target_v.y, target_v.z])
+				if t_vel_arr.size() >= 3:
+					char_body.velocity.y = maxf(float(t_vel_arr[1]), 5.0)
+
+	# 4. Landing detection
+	if _special_traj_jump_fired:
+		var grounded: bool = char_body != null and char_body.is_on_floor()
+		if (grounded and _special_traj_time > takeoff_time + 0.15) or _special_traj_time >= duration + 0.1:
+			_special_traj_active = false
+			_jump_done_index = _path_index
+			_path_index += 1
+			_repath_cooldown = 0.0
+			if _has_target and _path_index >= _path.size():
+				_finish()
+			return true
+
+	# 5. Safety timeout
+	if _special_traj_time > duration + 1.5:
+		_special_traj_active = false
+		_repath_cooldown = 0.0
+		repath_requested.emit(body_pos, _target_pos)
+		return false
+
+	return true
+
+
+func _sample_trajectory(traj: Array, t: float) -> Dictionary:
+	if traj.is_empty():
+		return {}
+	if traj.size() == 1 or t <= float(traj[0].get("t", 0.0)):
+		var v_arr: Array = traj[0].get("v", [0,0,0])
+		var p_arr: Array = traj[0].get("p", [0,0,0])
+		return {
+			"p": Vector3(p_arr[0], p_arr[1], p_arr[2]),
+			"v": Vector3(v_arr[0], v_arr[1], v_arr[2]),
+			"phase": traj[0].get("phase", "runup"),
+			"grounded": traj[0].get("grounded", true),
+		}
+	if t >= float(traj[-1].get("t", 0.0)):
+		var v_arr: Array = traj[-1].get("v", [0,0,0])
+		var p_arr: Array = traj[-1].get("p", [0,0,0])
+		return {
+			"p": Vector3(p_arr[0], p_arr[1], p_arr[2]),
+			"v": Vector3(v_arr[0], v_arr[1], v_arr[2]),
+			"phase": traj[-1].get("phase", "airborne"),
+			"grounded": traj[-1].get("grounded", false),
+		}
+	for i in range(traj.size() - 1):
+		var t0: float = float(traj[i].get("t", 0.0))
+		var t1: float = float(traj[i + 1].get("t", 0.0))
+		if t >= t0 and t <= t1:
+			var factor := (t - t0) / maxf(t1 - t0, 0.0001)
+			var p0: Array = traj[i]["p"]
+			var p1: Array = traj[i + 1]["p"]
+			var v0: Array = traj[i]["v"]
+			var v1: Array = traj[i + 1]["v"]
+			var p := Vector3(lerpf(p0[0], p1[0], factor), lerpf(p0[1], p1[1], factor), lerpf(p0[2], p1[2], factor))
+			var v := Vector3(lerpf(v0[0], v1[0], factor), lerpf(v0[1], v1[1], factor), lerpf(v0[2], v1[2], factor))
+			var phase: String = traj[i + 1].get("phase", traj[i].get("phase", "runup"))
+			var grounded: bool = bool(traj[i].get("grounded", true)) if factor < 0.5 else bool(traj[i + 1].get("grounded", true))
+			return { "p": p, "v": v, "phase": phase, "grounded": grounded }
+	var last_v: Array = traj[-1].get("v", [0,0,0])
+	var last_p: Array = traj[-1].get("p", [0,0,0])
+	return { "p": Vector3(last_p[0], last_p[1], last_p[2]), "v": Vector3(last_v[0], last_v[1], last_v[2]), "phase": "airborne", "grounded": false }
+
+
+static func _parse_vec3_helper(v: Variant) -> Vector3:
+	if v is Vector3:
+		return v
+	if v is Array and v.size() >= 3:
+		return Vector3(float(v[0]), float(v[1]), float(v[2]))
+	return Vector3.ZERO
 
 
 ## The committed arc: asks for nothing at all.

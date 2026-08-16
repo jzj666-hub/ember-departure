@@ -30,6 +30,7 @@ var _start_pos := Vector3.ZERO
 var _takeoff_pos := Vector3.ZERO
 var _takeoff_vel := Vector3.ZERO
 var _takeoff_speed := 0.0
+var _takeoff_time := 0.0
 var _landing_pos := Vector3.ZERO
 
 var _trajectory_samples: Array = []
@@ -73,6 +74,7 @@ func _reset() -> void:
 	_takeoff_pos = Vector3.ZERO
 	_takeoff_vel = Vector3.ZERO
 	_takeoff_speed = 0.0
+	_takeoff_time = 0.0
 	_landing_pos = Vector3.ZERO
 
 
@@ -110,12 +112,13 @@ func update_frame(body: CharacterBody3D, delta: float) -> void:
 
 		State.ARMED_READY_TO_JUMP:
 			if grounded:
-				if horiz_speed > 0.1:
+				if horiz_speed > 0.05:
 					_timer += delta
 					_trajectory_samples.append({
 						"t": _timer,
 						"p": [pos.x, pos.y, pos.z],
 						"v": [vel.x, vel.y, vel.z],
+						"grounded": true,
 						"phase": "runup",
 					})
 			else:
@@ -123,11 +126,13 @@ func update_frame(body: CharacterBody3D, delta: float) -> void:
 				_takeoff_pos = pos
 				_takeoff_vel = vel
 				_takeoff_speed = horiz_speed
+				_takeoff_time = _timer
 				_timer += delta
 				_trajectory_samples.append({
 					"t": _timer,
 					"p": [pos.x, pos.y, pos.z],
 					"v": [vel.x, vel.y, vel.z],
+					"grounded": false,
 					"phase": "airborne",
 				})
 				state_changed.emit(_state, "空中飞行中... 记录直线轨迹")
@@ -223,6 +228,7 @@ func _finalize_recording() -> void:
 		"span_distance": span_length,
 		"runup_distance": runup_dist,
 		"duration": _timer,
+		"takeoff_time": _takeoff_time,
 		"start_pos": [_start_pos.x, _start_pos.y, _start_pos.z],
 		"takeoff_pos": [_takeoff_pos.x, _takeoff_pos.y, _takeoff_pos.z],
 		"takeoff_speed": _takeoff_speed,
