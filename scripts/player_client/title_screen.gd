@@ -4,6 +4,7 @@ extends Control
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const MapDataScript = preload("res://scripts/map_data.gd")
+const MapEditorScript = preload("res://scripts/map_editor.gd")
 
 const CHASE_SCENE := "res://scenes/player_client/chase_game.tscn"
 const MAP_EDITOR_SCENE := "res://scenes/map_editor.tscn"
@@ -13,6 +14,7 @@ const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 var _custom_font: Font = null
 var _guide_dialog: PanelContainer
 var _map_dialog: PanelContainer
+var _workshop_ask_dialog: PanelContainer
 var _map_list: ItemList
 
 
@@ -28,6 +30,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
 			get_viewport().set_input_as_handled()
+			if _workshop_ask_dialog != null and _workshop_ask_dialog.visible:
+				_workshop_ask_dialog.visible = false
+				return
 			if _guide_dialog != null and _guide_dialog.visible:
 				_guide_dialog.visible = false
 				return
@@ -106,8 +111,7 @@ func _build_ui() -> void:
 
 	var btn_editor := _create_menu_button("地图工坊 (Map Studio)", "res://assets/UI_assets/cubes.svg", Color(0.2, 0.65, 0.95))
 	btn_editor.pressed.connect(func() -> void:
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		get_tree().change_scene_to_file(MAP_EDITOR_SCENE)
+		_workshop_ask_dialog.visible = true
 	)
 	right_col.add_child(btn_editor)
 
@@ -124,6 +128,7 @@ func _build_ui() -> void:
 
 	_build_guide_dialog()
 	_build_map_dialog()
+	_build_workshop_ask_dialog()
 
 
 func _create_menu_button(text: String, icon_path: String, accent_color: Color) -> Button:
@@ -359,3 +364,89 @@ func _on_start_game_pressed() -> void:
 
 func _open_guide_dialog() -> void:
 	_guide_dialog.visible = true
+
+
+func _build_workshop_ask_dialog() -> void:
+	_workshop_ask_dialog = PanelContainer.new()
+	_workshop_ask_dialog.set_anchors_preset(PRESET_CENTER)
+	_workshop_ask_dialog.offset_left = -270
+	_workshop_ask_dialog.offset_right = 270
+	_workshop_ask_dialog.offset_top = -170
+	_workshop_ask_dialog.offset_bottom = 170
+	_workshop_ask_dialog.custom_minimum_size = Vector2(540, 340)
+	_workshop_ask_dialog.visible = false
+
+	var diag_style := StyleBoxFlat.new()
+	diag_style.bg_color = Color(0.10, 0.12, 0.16, 0.98)
+	diag_style.set_corner_radius_all(12)
+	diag_style.set_content_margin_all(20)
+	diag_style.set_border_width_all(2)
+	diag_style.border_color = Color(0.2, 0.75, 1.0)
+	_workshop_ask_dialog.add_theme_stylebox_override("panel", diag_style)
+	add_child(_workshop_ask_dialog)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 14)
+	_workshop_ask_dialog.add_child(vbox)
+
+	var icon_tex := TextureRect.new()
+	if ResourceLoader.exists("res://assets/UI_assets/cubes.svg"):
+		icon_tex.texture = load("res://assets/UI_assets/cubes.svg")
+	icon_tex.custom_minimum_size = Vector2(50, 50)
+	icon_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_tex.modulate = Color(0.25, 0.85, 1.0)
+	vbox.add_child(icon_tex)
+
+	var title := Label.new()
+	title.text = "欢迎进入地图工坊 (Map Studio)"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if _custom_font != null:
+		title.add_theme_font_override("font", _custom_font)
+	title.add_theme_font_size_override("font_size", 22)
+	title.modulate = Color(0.3, 0.9, 1.0)
+	vbox.add_child(title)
+
+	var desc := Label.new()
+	desc.text = "地图工坊支持多尺寸立体方块建造、人机物理寻路测试，以及玩家亲自示范并让 AI 学习的【特殊极限跳跃航迹录制】！\n\n是否开启【沉浸式在线互动新手教学】？"
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _custom_font != null:
+		desc.add_theme_font_override("font", _custom_font)
+	desc.add_theme_font_size_override("font_size", 14)
+	desc.modulate = Color(0.85, 0.88, 0.92, 0.9)
+	vbox.add_child(desc)
+
+	var btn_box := HBoxContainer.new()
+	btn_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_box.add_theme_constant_override("separation", 16)
+	vbox.add_child(btn_box)
+
+	var tut_btn := Button.new()
+	tut_btn.text = "🚀 开启互动教学 (Tutorial)"
+	if _custom_font != null:
+		tut_btn.add_theme_font_override("font", _custom_font)
+	tut_btn.add_theme_font_size_override("font_size", 16)
+	tut_btn.custom_minimum_size = Vector2(190, 42)
+	tut_btn.pressed.connect(func() -> void:
+		_workshop_ask_dialog.visible = false
+		MapEditorScript.tutorial_on_start = true
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		get_tree().change_scene_to_file(MAP_EDITOR_SCENE)
+	)
+	btn_box.add_child(tut_btn)
+
+	var skip_btn := Button.new()
+	skip_btn.text = "⏩ 跳过教学，自由创作"
+	if _custom_font != null:
+		skip_btn.add_theme_font_override("font", _custom_font)
+	skip_btn.add_theme_font_size_override("font_size", 16)
+	skip_btn.custom_minimum_size = Vector2(170, 42)
+	skip_btn.pressed.connect(func() -> void:
+		_workshop_ask_dialog.visible = false
+		MapEditorScript.tutorial_on_start = false
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		get_tree().change_scene_to_file(MAP_EDITOR_SCENE)
+	)
+	btn_box.add_child(skip_btn)

@@ -92,7 +92,19 @@ var _char_index := 0
 
 ## HUD and UI elements.
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
+const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+
 var _custom_font: Font = null
+static var tutorial_on_start := false
+
+var _interactive_tutorial_active := false
+var _tutorial_step := 0
+var _interactive_banner: PanelContainer
+var _interactive_banner_style: StyleBoxFlat
+var _interactive_banner_icon: TextureRect
+var _interactive_banner_title: Label
+var _interactive_banner_sub: Label
+var _interactive_complete_dialog: PanelContainer
 
 var _hud_canvas: CanvasLayer
 var _top_panel: PanelContainer
@@ -150,6 +162,7 @@ class EditorCrosshair extends Control:
 
 
 func _ready() -> void:
+	AudioManagerScript.init_pool(self)
 	if ResourceLoader.exists(FONT_PATH):
 		_custom_font = load(FONT_PATH) as Font
 
@@ -171,6 +184,10 @@ func _ready() -> void:
 	_build_hud()
 
 	_set_mode(EditorMode.BUILD)
+
+	if tutorial_on_start:
+		tutorial_on_start = false
+		start_interactive_tutorial()
 
 
 # --- Scene Construction -----------------------------------------------------
@@ -473,6 +490,8 @@ func _set_mode(new_mode: int) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 			_mode_label.text = "模式: 【操控试玩】 (按 R 录制特殊跳跃, 按 TAB 返回自由建造)"
 			_set_status("WASD移动，Shift加速，Space跳跃，按 R 开启特殊路径录制")
+			if _interactive_tutorial_active and _tutorial_step == 3:
+				_advance_interactive_tutorial(4)
 		EditorMode.RECORD_SPECIAL_PATH:
 			_npc.intent_source = _player_intent_source
 			_follow_camera.current = true
@@ -551,6 +570,13 @@ func _unhandled_input(event: InputEvent) -> void:
 						return
 				KEY_ESCAPE:
 					get_viewport().set_input_as_handled()
+					if _interactive_complete_dialog != null and _interactive_complete_dialog.visible:
+						_interactive_complete_dialog.visible = false
+						_interactive_tutorial_active = false
+						if _interactive_banner != null:
+							_interactive_banner.visible = false
+						_update_ui_panels_visibility()
+						return
 					if _tutorial_dialog != null and _tutorial_dialog.visible:
 						_close_tutorial_dialog()
 						return
@@ -814,6 +840,9 @@ func _place_block_at(grid_pos: Vector3i) -> void:
 	_set_status("已放置方块 [%s] 尺寸 %s 于 (%d, %d, %d)" % [
 		inst.type_id, inst.size, grid_pos.x, grid_pos.y, grid_pos.z])
 
+	if _interactive_tutorial_active and _tutorial_step == 0:
+		_advance_interactive_tutorial(1)
+
 
 func _remove_block_at(grid_pos: Vector3i) -> void:
 	if not _cell_to_block_id.has(grid_pos):
@@ -833,6 +862,9 @@ func _remove_block_at(grid_pos: Vector3i) -> void:
 
 	_redraw_special_paths()
 	_set_status("已删除方块 %s" % b_id)
+
+	if _interactive_tutorial_active and _tutorial_step == 1:
+		_advance_interactive_tutorial(2)
 
 
 func _clear_all_blocks() -> void:
@@ -863,6 +895,9 @@ func _on_special_path_recorded(path_data: Dictionary) -> void:
 	]
 	_update_recording_hud(SpecialPathRecorderScript.State.COMPLETED, msg)
 	_set_status("特殊跳跃录制成功！按 R 继续录制下一条，按 TAB 切换自由建造")
+
+	if _interactive_tutorial_active and _tutorial_step == 4:
+		_advance_interactive_tutorial(5)
 
 
 func _on_special_path_failed(reason: String) -> void:
@@ -953,6 +988,12 @@ func _recalculate_npc_path(target: Vector3) -> void:
 	else:
 		_set_status("已规划路径：包含 %d 个航路点，其中 %d 段将逐帧复刻录制的特殊跳跃" % [
 			points.size(), links.size()])
+
+	if _interactive_tutorial_active:
+		if _tutorial_step == 2:
+			_advance_interactive_tutorial(3)
+		elif _tutorial_step == 5:
+			_advance_interactive_tutorial(6)
 
 
 func _on_repath_requested(from_pos: Vector3, target: Vector3) -> void:
@@ -1422,7 +1463,254 @@ func _build_hud() -> void:
 	_build_recording_banner()
 	_build_save_load_dialog()
 	_build_tutorial_dialog()
+	_build_interactive_tutorial_hud()
 	_refresh_special_paths_ui()
+
+
+func _build_interactive_tutorial_hud() -> void:
+	_interactive_banner = PanelContainer.new()
+	_interactive_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_interactive_banner.offset_left = -340
+	_interactive_banner.offset_right = 340
+	_interactive_banner.offset_top = 58
+	_interactive_banner.offset_bottom = 150
+	_interactive_banner.custom_minimum_size = Vector2(680, 92)
+	_interactive_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_interactive_banner.visible = false
+
+	_interactive_banner_style = StyleBoxFlat.new()
+	_interactive_banner_style.bg_color = Color(0.09, 0.12, 0.17, 0.96)
+	_interactive_banner_style.set_corner_radius_all(10)
+	_interactive_banner_style.set_border_width_all(2)
+	_interactive_banner_style.border_color = Color(1.0, 0.85, 0.25)
+	_interactive_banner_style.set_content_margin_all(12)
+	_interactive_banner.add_theme_stylebox_override("panel", _interactive_banner_style)
+	_hud_canvas.add_child(_interactive_banner)
+
+	var hbox := HBoxContainer.new()
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_theme_constant_override("separation", 14)
+	_interactive_banner.add_child(hbox)
+
+	_interactive_banner_icon = TextureRect.new()
+	if ResourceLoader.exists("res://assets/UI_assets/cubes.svg"):
+		_interactive_banner_icon.texture = load("res://assets/UI_assets/cubes.svg")
+	_interactive_banner_icon.custom_minimum_size = Vector2(46, 46)
+	_interactive_banner_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_interactive_banner_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_interactive_banner_icon.modulate = Color(1.0, 0.85, 0.25)
+	hbox.add_child(_interactive_banner_icon)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 4)
+	hbox.add_child(vbox)
+
+	_interactive_banner_title = Label.new()
+	if _custom_font != null:
+		_interactive_banner_title.add_theme_font_override("font", _custom_font)
+	_interactive_banner_title.add_theme_font_size_override("font_size", 20)
+	_interactive_banner_title.modulate = Color(1.0, 0.88, 0.3)
+	vbox.add_child(_interactive_banner_title)
+
+	_interactive_banner_sub = Label.new()
+	_interactive_banner_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _custom_font != null:
+		_interactive_banner_sub.add_theme_font_override("font", _custom_font)
+	_interactive_banner_sub.add_theme_font_size_override("font_size", 14)
+	_interactive_banner_sub.modulate = Color(0.9, 0.92, 0.96)
+	vbox.add_child(_interactive_banner_sub)
+
+	_build_interactive_complete_dialog()
+
+
+func _build_interactive_complete_dialog() -> void:
+	_interactive_complete_dialog = PanelContainer.new()
+	_interactive_complete_dialog.set_anchors_preset(Control.PRESET_CENTER)
+	_interactive_complete_dialog.offset_left = -290
+	_interactive_complete_dialog.offset_right = 290
+	_interactive_complete_dialog.offset_top = -180
+	_interactive_complete_dialog.offset_bottom = 180
+	_interactive_complete_dialog.custom_minimum_size = Vector2(580, 360)
+	_interactive_complete_dialog.visible = false
+
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.12, 0.16, 0.98)
+	style.set_corner_radius_all(12)
+	style.set_border_width_all(2)
+	style.border_color = Color(0.3, 0.9, 0.6)
+	style.set_content_margin_all(22)
+	_interactive_complete_dialog.add_theme_stylebox_override("panel", style)
+	_hud_canvas.add_child(_interactive_complete_dialog)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 14)
+	_interactive_complete_dialog.add_child(vbox)
+
+	var icon := TextureRect.new()
+	if ResourceLoader.exists("res://assets/UI_assets/freedom-dove.svg"):
+		icon.texture = load("res://assets/UI_assets/freedom-dove.svg")
+	icon.custom_minimum_size = Vector2(56, 56)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.modulate = Color(0.3, 0.9, 0.6)
+	vbox.add_child(icon)
+
+	var title := Label.new()
+	title.text = "🎉 恭喜！新手互动教学圆满完成！"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if _custom_font != null:
+		title.add_theme_font_override("font", _custom_font)
+	title.add_theme_font_size_override("font_size", 24)
+	title.modulate = Color(0.3, 0.9, 0.6)
+	vbox.add_child(title)
+
+	var desc := Label.new()
+	desc.text = "您已成功掌握方块搭建、物理寻路测试、极限跳跃录制与 AI 智能复现！\n\n💡 核心秘籍：随时按【B 键】可在【属性面板（鼠标指针工作）】与【沉浸自由视角】之间一键切换！"
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _custom_font != null:
+		desc.add_theme_font_override("font", _custom_font)
+	desc.add_theme_font_size_override("font_size", 14)
+	desc.modulate = Color(0.88, 0.92, 0.96)
+	vbox.add_child(desc)
+
+	var finish_btn := Button.new()
+	finish_btn.text = "开始自由探索创作 (Start)"
+	if _custom_font != null:
+		finish_btn.add_theme_font_override("font", _custom_font)
+	finish_btn.add_theme_font_size_override("font_size", 16)
+	finish_btn.custom_minimum_size = Vector2(220, 42)
+	finish_btn.pressed.connect(func() -> void:
+		_interactive_complete_dialog.visible = false
+		_interactive_tutorial_active = false
+		_interactive_banner.visible = false
+		_update_ui_panels_visibility()
+	)
+	vbox.add_child(finish_btn)
+
+
+func start_interactive_tutorial() -> void:
+	_interactive_tutorial_active = true
+	_set_mode(EditorMode.BUILD)
+	_advance_interactive_tutorial(0)
+
+
+func _advance_interactive_tutorial(step: int) -> void:
+	_tutorial_step = step
+	if _interactive_banner == null:
+		return
+	_interactive_banner.visible = true
+
+	match step:
+		0:
+			if ResourceLoader.exists("res://assets/UI_assets/cubes.svg"):
+				_interactive_banner_icon.texture = load("res://assets/UI_assets/cubes.svg")
+				_interactive_banner_icon.modulate = Color(0.3, 0.85, 1.0)
+			_interactive_banner_title.text = "🎯 新手任务 (1/6): 放置方块"
+			_interactive_banner_sub.text = "准星对准地面任意网格，点击【鼠标左键 (LMB)】放置一个方块。"
+			_interactive_banner_style.border_color = Color(0.3, 0.85, 1.0)
+			_set_status("【任务 1/6】点击鼠标左键放置方块")
+
+		1:
+			if ResourceLoader.exists("res://assets/UI_assets/cross-mark.svg"):
+				_interactive_banner_icon.texture = load("res://assets/UI_assets/cross-mark.svg")
+				_interactive_banner_icon.modulate = Color(1.0, 0.4, 0.4)
+			_interactive_banner_title.text = "🎯 新手任务 (2/6): 拆除方块"
+			_interactive_banner_sub.text = "太棒了！现在准星对准刚才放置的方块，点击【鼠标右键 (RMB)】将其拆除。"
+			_interactive_banner_style.border_color = Color(1.0, 0.4, 0.4)
+			_set_status("【任务 2/6】准星对准方块点击鼠标右键拆除")
+
+		2:
+			if ResourceLoader.exists("res://assets/UI_assets/run.svg"):
+				_interactive_banner_icon.texture = load("res://assets/UI_assets/run.svg")
+				_interactive_banner_icon.modulate = Color(0.3, 0.9, 0.6)
+			_interactive_banner_title.text = "🎯 新手任务 (3/6): 人机智能寻路"
+			_interactive_banner_sub.text = "人机拥有强大的物理能力寻路！按住【Shift + 鼠标左键】点击地面较远处，指挥 NPC 走过去。"
+			_interactive_banner_style.border_color = Color(0.3, 0.9, 0.6)
+			_set_status("【任务 3/6】按住 Shift 点击左键测试 NPC 寻路")
+
+		3:
+			_spawn_tutorial_glowing_platforms()
+			if ResourceLoader.exists("res://assets/UI_assets/cctv-camera.svg"):
+				_interactive_banner_icon.texture = load("res://assets/UI_assets/cctv-camera.svg")
+				_interactive_banner_icon.modulate = Color(1.0, 0.85, 0.25)
+			_interactive_banner_title.text = "🎯 新手任务 (4/6): 切换自身操控"
+			_interactive_banner_sub.text = "场景中央已生成两座测试跳台！按【TAB 键】切换为自己操控角色，并站到起点方块上方。"
+			_interactive_banner_style.border_color = Color(1.0, 0.85, 0.25)
+			_set_status("【任务 4/6】按 TAB 键切换为自身操控")
+
+		4:
+			if ResourceLoader.exists("res://assets/UI_assets/digital-trace.svg"):
+				_interactive_banner_icon.texture = load("res://assets/UI_assets/digital-trace.svg")
+				_interactive_banner_icon.modulate = Color(0.2, 0.85, 1.0)
+			_interactive_banner_title.text = "🎯 新手任务 (5/6): 录制极限跳跃轨迹"
+			_interactive_banner_sub.text = "人机身法极限不如玩家！在起点方块边缘停下保持静止，按【R 键】就绪，然后全力助跑跳到对面的方块上！"
+			_interactive_banner_style.border_color = Color(0.2, 0.85, 1.0)
+			_set_status("【任务 5/6】站在起点停下，按 R 键就绪后助跑起跳跨越断台")
+
+		5:
+			if ResourceLoader.exists("res://assets/UI_assets/claw-slashes.svg"):
+				_interactive_banner_icon.texture = load("res://assets/UI_assets/claw-slashes.svg")
+				_interactive_banner_icon.modulate = Color(1.0, 0.88, 0.3)
+			_interactive_banner_title.text = "🎯 新手任务 (6/6): 见证 AI 学习并复现跳跃"
+			_interactive_banner_sub.text = "录制成功！按【TAB 键】回到自由建造，按住【Shift + 左键】点击对面方块，观察 NPC 学习并复现你的轨迹！"
+			_interactive_banner_style.border_color = Color(1.0, 0.88, 0.3)
+			_set_status("【任务 6/6】按 TAB 回到建造，Shift+左键点击对面方块观察 NPC 跳跃")
+
+		6:
+			_interactive_banner.visible = false
+			_interactive_complete_dialog.visible = true
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			_cursor_free = true
+			AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/mission_completed.ogg", 2.0)
+			_set_status("恭喜！您已圆满完成地图工坊新手互动教学！")
+
+
+func _spawn_tutorial_glowing_platforms() -> void:
+	_clear_all_blocks()
+	_nav.clear_special_paths()
+
+	# Platform 1
+	var inst1 := BlockRegistry.BlockInstance.new()
+	inst1.id = "tut_plat_1"
+	inst1.type_id = "cube"
+	inst1.grid_pos = Vector3i(0, 1, 0)
+	inst1.size = Vector3i(2, 1, 2)
+	var body1 := BlockRegistry.create_body(inst1)
+	inst1.body_node = body1
+	add_child(body1)
+	_blocks[inst1.id] = inst1
+	for c in inst1.get_occupied_cells():
+		_cell_to_block_id[c] = inst1.id
+		_nav.set_block(c, true)
+
+	# Platform 2 (Across gap of 2 blocks, separated at z = 4)
+	var inst2 := BlockRegistry.BlockInstance.new()
+	inst2.id = "tut_plat_2"
+	inst2.type_id = "cube"
+	inst2.grid_pos = Vector3i(0, 1, 4)
+	inst2.size = Vector3i(2, 1, 2)
+	var body2 := BlockRegistry.create_body(inst2)
+	inst2.body_node = body2
+	add_child(body2)
+	_blocks[inst2.id] = inst2
+	for c in inst2.get_occupied_cells():
+		_cell_to_block_id[c] = inst2.id
+		_nav.set_block(c, true)
+
+	_nav.rebuild()
+	_nav.set_capability(_npc)
+
+	# Position NPC on Platform 1
+	_npc.global_position = Vector3(1.0, 1.2, 1.0)
+	_npc.velocity = Vector3.ZERO
+	_builder_camera.global_position = Vector3(1.0, 3.5, -3.5)
+	_cam_pitch = -0.35
+	_cam_yaw = 0.0
+	_apply_builder_orientation()
 
 
 func _toggle_ui_panels_mode() -> void:
