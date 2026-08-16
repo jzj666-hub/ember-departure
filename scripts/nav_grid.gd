@@ -558,18 +558,40 @@ func _connect_ortho(here: Vector3i, col: Vector2i) -> void:
 		_astar.connect_points(_nodes[here], _nodes[there], false)
 
 
-## Diagonals are level-only and may not cut a corner. A climb squares up to its
-## wall before it runs (see PlayerController._try_climb), so a diagonal one puts
-## a shoulder through the block. Pre: `ring` is `here`'s neighbour mask.
-func _connect_diag(here: Vector3i, d: Vector2i, ring: int) -> void:
-	if ring & (1 << ((d.x + 1) * 3 + d.y + 1)) == 0:
+## Links `here` to every level of the diagonally neighbouring column (d.x, d.y)
+## that the body can reach (level walk/hop, climb/rise up to 2m, or drop).
+func _connect_diag(here: Vector3i, d: Vector2i, _ring: int) -> void:
+	var col := Vector2i(here.x + d.x, here.z + d.y)
+	if not _columns.has(col):
 		return
-	if ring & (1 << ((d.x + 1) * 3 + 1)) == 0:
-		return
-	if ring & (1 << (3 + d.y + 1)) == 0:
-		return
-	_astar.connect_points(_nodes[here],
-		_nodes[Vector3i(here.x + d.x, here.y, here.z + d.y)], false)
+	var col_a := Vector2i(here.x + d.x, here.z)
+	var col_b := Vector2i(here.x, here.z + d.y)
+
+	var levels: PackedInt32Array = _columns[col]
+	for level in levels:
+		var there := Vector3i(col.x, level, col.y)
+		var dh: int = level - here.y
+		if dh == 0:
+			# Diagonal level transition: allow unless pinched between two solid walls at here.y
+			if _blocks.has(Vector3i(col_a.x, here.y, col_a.y)) and _blocks.has(Vector3i(col_b.x, here.y, col_b.y)):
+				continue
+			if not _clear_span(col, here.y, here.y + _head - 1):
+				continue
+		elif dh > 0:
+			# Diagonal climb/rise: 1m or 2m ledge against solid face
+			if not _cap.can_rise(float(dh)):
+				continue
+			if not _solid_span(col, here.y, level - 1):
+				continue
+			if not _clear_span(col, level, level + _head - 1):
+				continue
+		elif dh < 0:
+			# Diagonal drop:
+			if not _cap.can_drop(float(-dh)):
+				continue
+			if not _clear_span(col, level, here.y + _head - 1):
+				continue
+		_astar.connect_points(_nodes[here], _nodes[there], false)
 
 
 ## Links `here` across a void to every platform a run-jump reaches, in any XZ

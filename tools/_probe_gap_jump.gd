@@ -5,6 +5,8 @@ extends SceneTree
 ##
 ##   godot --headless --path . --script res://tools/_probe_gap_jump.gd
 
+const NavGridScript = preload("res://scripts/nav_grid.gd")
+
 var _failures := 0
 
 
@@ -15,6 +17,7 @@ func _initialize() -> void:
 	_check_ortho_gaps()
 	_check_diagonal_gaps()
 	_check_rise_gaps()
+	_check_immediate_diagonals()
 	_check_classified_as_jump()
 	_check_ceiling_blocks_arc()
 
@@ -40,9 +43,9 @@ func _near(a: float, b: float, tol := 0.001) -> bool:
 
 
 func _grid(half := 12) -> NavGrid:
-	var grid := NavGrid.new()
+	var grid = NavGridScript.new()
 	grid.set_bounds(half, 8)
-	grid.set_capability_direct(NavGrid.Capability.new())
+	grid.set_capability_direct(NavGridScript.Capability.new())
 	return grid
 
 
@@ -193,6 +196,53 @@ func _check_rise_gaps() -> void:
 	_ok("3-cell void up one level is crossed",
 		bool(res3.complete) and _has_move(res3, NavGrid.Move.JUMP),
 		"(%d waypoints)" % res3.points.size())
+
+
+func _check_immediate_diagonals() -> void:
+	print("\n--- immediate diagonal (forward 1, offset 1): flat, up 1/2 blocks, and drops ---")
+	# 1. Diagonal flat across corner void (isolated pillars)
+	var g_flat := _grid()
+	g_flat.set_block(Vector3i(0, 1, 0), true)
+	g_flat.set_block(Vector3i(1, 1, 1), true)
+	var res_flat := g_flat.find_path(Vector3(0.5, 2.0, 0.5), Vector3(1.5, 2.0, 1.5))
+	_ok("immediate diagonal flat across corner void is crossed",
+		bool(res_flat.complete), "(%d waypoints)" % res_flat.points.size())
+
+	# 2. Diagonal up 1 block (climb/hop onto 1m higher diagonal block)
+	var g_up1 := _grid()
+	g_up1.set_block(Vector3i(0, 1, 0), true)
+	g_up1.set_block(Vector3i(1, 1, 1), true)
+	g_up1.set_block(Vector3i(1, 2, 1), true)
+	var res_up1 := g_up1.find_path(Vector3(0.5, 2.0, 0.5), Vector3(1.5, 3.0, 1.5))
+	_ok("immediate diagonal up 1 block is crossed",
+		bool(res_up1.complete), "(%d waypoints)" % res_up1.points.size())
+
+	# 3. Diagonal up 2 blocks (climb/mantle onto 2m higher diagonal block)
+	var g_up2 := _grid()
+	g_up2.set_block(Vector3i(0, 1, 0), true)
+	g_up2.set_block(Vector3i(1, 1, 1), true)
+	g_up2.set_block(Vector3i(1, 2, 1), true)
+	g_up2.set_block(Vector3i(1, 3, 1), true)
+	var res_up2 := g_up2.find_path(Vector3(0.5, 2.0, 0.5), Vector3(1.5, 4.0, 1.5))
+	_ok("immediate diagonal up 2 blocks is crossed",
+		bool(res_up2.complete), "(%d waypoints)" % res_up2.points.size())
+
+	# 4. Diagonal drop 2 blocks
+	var res_down2 := g_up2.find_path(Vector3(1.5, 4.0, 1.5), Vector3(0.5, 2.0, 0.5))
+	_ok("immediate diagonal drop 2 blocks is crossed",
+		bool(res_down2.complete), "(%d waypoints)" % res_down2.points.size())
+
+	# 5. Diagonal corner pinched by two solid walls at same height -> blocked
+	var g_pinch := _grid()
+	g_pinch.set_block(Vector3i(0, 1, 0), true)
+	g_pinch.set_block(Vector3i(1, 1, 1), true)
+	# Tall wall blocks at (1, 0) and (0, 1)
+	for y in range(2, 6):
+		g_pinch.set_block(Vector3i(1, y, 0), true)
+		g_pinch.set_block(Vector3i(0, y, 1), true)
+	var res_pinch := g_pinch.find_path(Vector3(0.5, 2.0, 0.5), Vector3(1.5, 2.0, 1.5))
+	_ok("immediate diagonal pinched by 2 solid walls is refused",
+		not bool(res_pinch.complete))
 
 
 func _check_classified_as_jump() -> void:

@@ -11,6 +11,7 @@ const FollowCameraScript = preload("res://scripts/follow_camera.gd")
 const BlockRegistryScript = preload("res://scripts/block_registry.gd")
 const MapDataScript = preload("res://scripts/map_data.gd")
 const SpecialPathRecorderScript = preload("res://scripts/special_path_recorder.gd")
+const NavGridScript = preload("res://scripts/nav_grid.gd")
 
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 const GROUND_HALF := 20.0
@@ -48,7 +49,7 @@ var _current_block_type := "cube"
 var _current_block_size := Vector3i(1, 1, 1)
 
 ## Navigation and special paths.
-var _nav := NavGrid.new()
+var _nav = NavGridScript.new()
 var _recorder = SpecialPathRecorderScript.new()
 
 ## Visual helpers and path meshes.
