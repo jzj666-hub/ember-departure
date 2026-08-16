@@ -804,6 +804,48 @@ func _on_repath_requested(from_pos: Vector3, target: Vector3) -> void:
 	_draw_path(result.points, result.moves)
 
 
+func _test_specific_special_path(p_dict: Dictionary) -> void:
+	var from_arr: Array = p_dict.get("from", [0, 0, 0])
+	var to_arr: Array = p_dict.get("to", [0, 0, 0])
+	var from_cell := Vector3i(int(from_arr[0]), int(from_arr[1]), int(from_arr[2]))
+	var to_cell := Vector3i(int(to_arr[0]), int(to_arr[1]), int(to_arr[2]))
+
+	var rest_raw = p_dict.get("rest_pos")
+	var rest_pos := _vec3_from_raw(rest_raw)
+	if rest_pos == Vector3.ZERO:
+		rest_pos = NavGrid.foot(from_cell)
+	var rest_heading: float = float(p_dict.get("rest_heading", 0.0))
+
+	# Position NPC at exact recorded rest point and orient heading
+	_npc.global_position = rest_pos
+	_npc.velocity = Vector3.ZERO
+	_npc.rotation.y = rest_heading
+
+	var target_pos := NavGrid.foot(to_cell)
+	var points := PackedVector3Array([NavGrid.foot(from_cell), target_pos])
+	var moves := PackedInt32Array([NavGrid.Move.WALK, NavGrid.Move.SPECIAL_JUMP])
+	var special_links := {1: p_dict}
+
+	var plan := {
+		"points": points,
+		"moves": moves,
+		"goal": target_pos,
+		"complete": true,
+		"special_links": special_links,
+	}
+
+	_npc_intent_source.set_plan_result(plan)
+	_draw_path(points, moves)
+	_beacon_instance.global_position = target_pos
+	_beacon_instance.visible = true
+	var traj_size: int = (p_dict.get("trajectory", []) as Array).size()
+	_set_status("正在精准测试特殊路径: (%d,%d,%d) -> (%d,%d,%d) · %d 帧轨迹" % [
+		from_cell.x, from_cell.y, from_cell.z,
+		to_cell.x, to_cell.y, to_cell.z,
+		traj_size
+	])
+
+
 func _draw_path(points: PackedVector3Array, moves: PackedInt32Array) -> void:
 	_path_immediate_mesh.clear_surfaces()
 	if points.size() < 2:
@@ -1209,8 +1251,7 @@ func _refresh_special_paths_ui() -> void:
 		test_btn.text = "NPC测试"
 		test_btn.add_theme_font_size_override("font_size", 10)
 		test_btn.pressed.connect(func() -> void:
-			var target_pos := NavGrid.foot(Vector3i(to_arr[0], to_arr[1], to_arr[2]))
-			_recalculate_npc_path(target_pos)
+			_test_specific_special_path(p_dict)
 		)
 		btns.add_child(test_btn)
 
