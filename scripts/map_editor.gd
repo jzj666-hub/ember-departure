@@ -507,7 +507,15 @@ func _set_mode(new_mode: int) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 			_mode_label.text = "模式: 【特殊路径录制】 (按 ESC / R 取消录制)"
 			_recorder.start_recording()
-			_update_recording_hud(SpecialPathRecorderScript.State.ARMED_WAITING_FOR_REST, "请在起点格保持完全静止...")
+			AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/ready.ogg", 2.0)
+			_update_recording_hud(SpecialPathRecorderScript.State.ARMED_WAITING_FOR_REST, "已响应 R 键！请在起点格就绪起跳...")
+			if _interactive_tutorial_active and _tutorial_step == 4:
+				if _interactive_banner != null:
+					_interactive_banner_icon.modulate = Color(1.0, 0.35, 0.35)
+					_interactive_banner_title.text = "🎯 新手任务 (5/8): 🔴 正在录制！助跑起跳！"
+					_interactive_banner_sub.text = "已响应【R 键】！动作捕获就绪：请全力助跑起跳跨越断台，录制空中飞跃轨迹！"
+					_interactive_banner_style.border_color = Color(1.0, 0.35, 0.35)
+				_set_status("🔴【R 键已响应】录制就绪！请立即向对面跳台助跑起跳！")
 
 
 func _set_status(msg: String) -> void:
@@ -931,11 +939,23 @@ func _on_special_path_failed(reason: String) -> void:
 	_set_mode(EditorMode.PLAY_TEST)
 	_update_recording_hud(SpecialPathRecorderScript.State.IDLE, reason, true)
 	_set_status("录制未完成/取消：%s" % reason)
+	if _interactive_tutorial_active and _tutorial_step == 4:
+		_advance_interactive_tutorial(4)
 
 
 func _on_recorder_state_changed(state: int, message: String) -> void:
 	_set_status(message)
 	_update_recording_hud(state, message)
+	if _interactive_tutorial_active and _tutorial_step == 4 and _interactive_banner != null:
+		match state:
+			SpecialPathRecorderScript.State.ARMED_WAITING_FOR_REST:
+				_interactive_banner_sub.text = "已响应【R 键】！就绪状态：请原地起跑并助跑跳向对面跳台！"
+			SpecialPathRecorderScript.State.GROUND_RECORDING:
+				_interactive_banner_sub.text = "🏃 检测到助跑加速！请全力向前起跳！"
+			SpecialPathRecorderScript.State.AIRBORNE_RECORDING:
+				_interactive_banner_sub.text = "🚀 腾空检测中！正在逐帧捕获空中抛物线轨迹..."
+			SpecialPathRecorderScript.State.COMPLETED:
+				_interactive_banner_sub.text = "🎯 成功着陆！正在提取动力学轨迹并生成路径..."
 
 
 func _redraw_special_paths() -> void:

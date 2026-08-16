@@ -100,6 +100,11 @@ func _test_interactive_tutorial_flow() -> void:
 	editor.call("_set_mode", MapEditorScript.EditorMode.PLAY_TEST)
 	_ok("Switching to PLAY_TEST advances to Step 4", editor.get("_tutorial_step") == 4)
 
+	# Test pressing R key to start recording
+	editor.call("_set_mode", MapEditorScript.EditorMode.RECORD_SPECIAL_PATH)
+	var banner_title: Label = editor.get("_interactive_banner_title")
+	_ok("R key gives immediate recording feedback in banner", banner_title != null and banner_title.text.contains("正在录制"))
+
 	# --- Step 4 -> Step 5: Special Path Recorded ---
 	var dummy_path := {
 		"id": "sp_tut_01",
