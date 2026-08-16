@@ -59,6 +59,13 @@ var _special_paths_mesh_instance: MeshInstance3D
 var _special_paths_mesh: ImmediateMesh
 var _beacon_instance: Node3D
 
+## Special path hover aiming and double-tap X deletion.
+var _hovered_special_path_id := ""
+var _last_x_press_time := -1000.0
+var _last_x_target_id := ""
+const DOUBLE_TAP_WINDOW := 0.45
+const SPECIAL_PATH_RAY_TOLERANCE := 0.50
+
 ## Crosshair targeting and ghost previews.
 var _highlight: MeshInstance3D
 var _ghost: MeshInstance3D
@@ -429,8 +436,8 @@ func _set_mode(new_mode: int) -> void:
 			_npc.intent_source = _npc_intent_source
 			_builder_camera.current = true
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-			_mode_label.text = "模式: 【自由建造】 (按 TAB 试玩, 按 R 录制特殊跳跃, 按住 ALT 解锁鼠标)"
-			_set_status("准星瞄准：左键放置，右键删除，Shift+左键/中键 指定人机寻路测试")
+			_mode_label.text = "模式: 【自由建造】 (按 TAB 试玩, 按 R 录制特殊跳跃, 准星对准轨迹连按两下 X 删除)"
+			_set_status("准星瞄准：左键放置，右键删除方块，连按两下 X 删除特殊轨迹，Shift+左键 指定人机寻路")
 		EditorMode.PLAY_TEST:
 			_npc.intent_source = _player_intent_source
 			_follow_camera.current = true
@@ -504,6 +511,11 @@ func _unhandled_input(event: InputEvent) -> void:
 						_set_mode(EditorMode.RECORD_SPECIAL_PATH)
 					get_viewport().set_input_as_handled()
 					return
+				KEY_X:
+					if _mode == EditorMode.BUILD:
+						_handle_x_double_tap()
+						get_viewport().set_input_as_handled()
+						return
 				KEY_ESCAPE:
 					if _save_load_dialog.visible:
 						_save_load_dialog.visible = false
@@ -575,6 +587,8 @@ func _update_targeting() -> void:
 	var origin := _builder_camera.project_ray_origin(centre)
 	var direction := _builder_camera.project_ray_normal(centre)
 
+	_update_special_path_aim(origin, direction)
+
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * BUILD_REACH)
 	query.collide_with_areas = false
 	query.exclude = [_npc.get_rid()] if _npc != null else []
@@ -612,6 +626,97 @@ func _update_targeting() -> void:
 	if ghost_mat != null:
 		ghost_mat.albedo_color = Color(0.2, 0.9, 0.4, 0.4) if can_place else Color(1.0, 0.2, 0.2, 0.4)
 	_ghost.visible = true
+
+
+func _update_special_path_aim(origin: Vector3, direction: Vector3) -> void:
+	var prev_hovered := _hovered_special_path_id
+	var best_dist := SPECIAL_PATH_RAY_TOLERANCE
+	var best_id := ""
+
+	var paths := _nav.get_special_paths()
+	for p in paths:
+		var path_id: String = str(p.get("id", ""))
+		var traj: Array = p.get("trajectory", [])
+		if traj.size() >= 2:
+			for i in range(1, traj.size()):
+				var s1 = traj[i - 1]
+				var s2 = traj[i]
+				var p1 := _vec3_from_raw(s1.get("p") if s1 is Dictionary else s1) + Vector3(0.0, 0.06, 0.0)
+				var p2 := _vec3_from_raw(s2.get("p") if s2 is Dictionary else s2) + Vector3(0.0, 0.06, 0.0)
+				var dist := _ray_to_segment_dist(origin, direction, p1, p2, BUILD_REACH)
+				if dist >= 0.0 and dist < best_dist:
+					best_dist = dist
+					best_id = path_id
+		else:
+			var from_c: Vector3i = NavGrid._parse_coord(p.get("from"))
+			var to_c: Vector3i = NavGrid._parse_coord(p.get("to"))
+			var f1 := NavGrid.foot(from_c) + Vector3(0.0, 0.15, 0.0)
+			var f2 := NavGrid.foot(to_c) + Vector3(0.0, 0.15, 0.0)
+			var dist := _ray_to_segment_dist(origin, direction, f1, f2, BUILD_REACH)
+			if dist >= 0.0 and dist < best_dist:
+				best_dist = dist
+				best_id = path_id
+
+	_hovered_special_path_id = best_id
+	if _hovered_special_path_id != prev_hovered:
+		_redraw_special_paths()
+		if _hovered_special_path_id != "":
+			_set_status("已对准特殊路径 · 连续按两次 X 可快速删除")
+
+
+func _handle_x_double_tap() -> void:
+	if _hovered_special_path_id == "":
+		_set_status("提示：请将十字准星对准特殊路径线条，连续按两次 X 删除")
+		return
+
+	var now := float(Time.get_ticks_msec()) * 0.001
+	if (now - _last_x_press_time) <= DOUBLE_TAP_WINDOW and _last_x_target_id == _hovered_special_path_id:
+		var del_id := _hovered_special_path_id
+		_nav.remove_special_path(del_id)
+		_hovered_special_path_id = ""
+		_last_x_press_time = -1000.0
+		_last_x_target_id = ""
+		_redraw_special_paths()
+		_refresh_special_paths_ui()
+		_set_status("已成功删除特殊路径：%s" % del_id)
+	else:
+		_last_x_press_time = now
+		_last_x_target_id = _hovered_special_path_id
+		_set_status("⚠️ 再次按下 X 确认删除当前瞄准的特殊路径！")
+
+
+static func _ray_to_segment_dist(ray_origin: Vector3, ray_dir: Vector3,
+		seg_a: Vector3, seg_b: Vector3, max_reach: float) -> float:
+	var u := seg_b - seg_a
+	var seg_len_sq := u.length_squared()
+	if seg_len_sq < 0.000001:
+		var to_pt := seg_a - ray_origin
+		var proj := to_pt.dot(ray_dir)
+		if proj < 0.2 or proj > max_reach:
+			return -1.0
+		return (ray_origin + ray_dir * proj).distance_to(seg_a)
+
+	var w0 := ray_origin - seg_a
+	var b := ray_dir.dot(u)
+	var c := seg_len_sq
+	var d := ray_dir.dot(w0)
+	var e := u.dot(w0)
+	var denom := c - b * b
+
+	var s: float = 0.0
+	var t: float = 0.0
+
+	if denom < 0.000001:
+		t = 0.0
+		s = clampf(-d, 0.2, max_reach)
+	else:
+		t = clampf((e - b * d) / denom, 0.0, 1.0)
+		s = clampf(t * b - d, 0.2, max_reach)
+		t = clampf((s * b + e) / c, 0.0, 1.0)
+
+	var pt_ray := ray_origin + ray_dir * s
+	var pt_seg := seg_a + u * t
+	return pt_ray.distance_to(pt_seg)
 
 
 # --- Block Management -------------------------------------------------------
@@ -734,9 +839,11 @@ func _redraw_special_paths() -> void:
 	_special_paths_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 	for p_idx in range(paths.size()):
 		var p: Dictionary = paths[p_idx]
+		var path_id: String = str(p.get("id", ""))
+		var is_hovered := (path_id != "" and path_id == _hovered_special_path_id)
 		var traj: Array = p.get("trajectory", [])
 		var hue: float = fposmod(float(p_idx) * 0.31, 1.0)
-		var base_col := Color.from_hsv(hue, 0.85, 0.95, 0.95)
+		var base_col := Color(1.0, 0.95, 0.25, 1.0) if is_hovered else Color.from_hsv(hue, 0.85, 0.95, 0.95)
 		if traj.size() >= 2:
 			for i in range(1, traj.size()):
 				var s1 = traj[i - 1]
@@ -744,11 +851,19 @@ func _redraw_special_paths() -> void:
 				var p1 := _vec3_from_raw(s1.get("p") if s1 is Dictionary else s1)
 				var p2 := _vec3_from_raw(s2.get("p") if s2 is Dictionary else s2)
 				var is_air := not bool(s2.get("grounded", true)) if s2 is Dictionary else true
-				var col := base_col if is_air else base_col.lerp(Color(0.2, 1.0, 0.5), 0.45)
+				var col := base_col if (is_hovered or is_air) else base_col.lerp(Color(0.2, 1.0, 0.5), 0.45)
 				_special_paths_mesh.surface_set_color(col)
 				_special_paths_mesh.surface_add_vertex(p1 + Vector3(0.0, 0.06, 0.0))
 				_special_paths_mesh.surface_set_color(col)
 				_special_paths_mesh.surface_add_vertex(p2 + Vector3(0.0, 0.06, 0.0))
+
+				if is_hovered:
+					# Extra prominent visual indicator along hovered trajectory
+					var tick := Vector3(0.0, 0.12, 0.0)
+					_special_paths_mesh.surface_set_color(Color(1.0, 1.0, 1.0, 0.9))
+					_special_paths_mesh.surface_add_vertex(p2 + Vector3(0.0, 0.06, 0.0))
+					_special_paths_mesh.surface_set_color(Color(1.0, 1.0, 1.0, 0.9))
+					_special_paths_mesh.surface_add_vertex(p2 + Vector3(0.0, 0.06, 0.0) + tick)
 		else:
 			var from_c: Vector3i = NavGrid._parse_coord(p.get("from"))
 			var to_c: Vector3i = NavGrid._parse_coord(p.get("to"))

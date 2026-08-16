@@ -179,6 +179,19 @@ func _test_nav_grid_special_path() -> void:
 	var ab_updated := nav.get_special_path_between(cell_a, cell_b)
 	_ok("Updated trajectory retrieved", str(ab_updated.get("id")) == "special_jump_ab_v2")
 
+	# Raycast line aiming math test
+	print("\n--- Test 4b: Ray to Special Path Segment Distance Math ---")
+	var ray_o := Vector3(0.0, 5.0, -2.0)
+	var ray_d := Vector3(0.0, -0.7071, 0.7071).normalized() # hits y=1 at z=2.0
+	var seg_p1 := Vector3(0.0, 1.0, 0.0)
+	var seg_p2 := Vector3(0.0, 1.0, 6.0)
+	var dist_close: float = MapEditorScript._ray_to_segment_dist(ray_o, ray_d, seg_p1, seg_p2, 40.0)
+	_ok("Ray directly crossing segment has near-zero distance", is_zero_approx(dist_close), "Dist: %.4f" % dist_close)
+
+	var ray_miss_o := Vector3(5.0, 5.0, -2.0) # offset by 5m on X
+	var dist_miss: float = MapEditorScript._ray_to_segment_dist(ray_miss_o, ray_d, seg_p1, seg_p2, 40.0)
+	_ok("Ray offset by 5m returns exact 5m distance", is_equal_approx(dist_miss, 5.0), "Dist: %.4f" % dist_miss)
+
 func _test_map_editor_scene() -> void:
 	print("\n--- Test 5: MapEditor Scene Instantiation ---")
 	var scene := load("res://scenes/map_editor.tscn") as PackedScene
