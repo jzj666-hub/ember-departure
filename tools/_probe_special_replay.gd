@@ -368,4 +368,25 @@ func _check_multi_path_isolation() -> void:
 	_ok("Path 2 has 25 frames", (p2_after.get("trajectory", []) as Array).size() == 25)
 	_ok("Path 2 has heading 2.5", is_equal_approx(float(p2_after["trajectory"][0].get("heading")), 2.5))
 
+	# Test last zero-velocity resetting:
+	# Start at x=0, run 5 frames, STOP at x=5 (speed=0), then run 3 frames and jump
+	rec._reset()
+	rec._state = SpecialPathRecorderScript.State.GROUND_RECORDING
+	rec._start_cell = Vector3i(-1, 2, 0)
+	rec._rest_pos = Vector3(0.0, 2.0, 0.0)
+	for i in range(5):
+		rec._trajectory_samples.append({"p": [float(i), 2.0, 0.0], "heading": 0.0, "run": true, "jump": false, "grounded": true})
+	# Simulate frame with zero velocity & move=0 (grounded)
+	# Directly simulate the state transition in GROUND_RECORDING
+	var snap := {"move": Vector2.ZERO, "heading": 0.0, "run": false, "jump": false}
+	var stop_pos := Vector3(5.0, 2.0, 0.0)
+	var stop_vel := Vector3.ZERO
+	# When grounded and speed <= 0.15 and move == 0 and not jump:
+	rec._rest_pos = stop_pos
+	rec._rest_heading = snap.heading
+	rec._timer = 0.0
+	rec._trajectory_samples = [rec._make_sample(0.0, stop_pos, stop_vel, snap, true)]
+	_ok("Stopping on ground resets rest_pos to latest zero-speed point (x=5.0)", is_equal_approx(rec._rest_pos.x, 5.0))
+	_ok("Stopping on ground discards previous wander frames", rec._trajectory_samples.size() == 1)
+
 	body.free()

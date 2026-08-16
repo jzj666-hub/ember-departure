@@ -114,15 +114,23 @@ func update_frame(body: CharacterBody3D, delta: float) -> void:
 						_start_cell = _nav_grid.standing_node(pos)
 					_state = State.GROUND_RECORDING
 					_timer = 0.0
-					_trajectory_samples.clear()
-					_trajectory_samples.append(_make_sample(0.0, pos, vel, snap, grounded))
-					state_changed.emit(_state, "已就绪！开始录制，请起跑并跳向目标格（支持任意转弯与弧线）")
+					_trajectory_samples = [_make_sample(0.0, pos, vel, snap, grounded)]
+					state_changed.emit(_state, "已就绪！开始录制（将自动以起跳前最后一次静止点为起点）")
 			else:
 				_rest_timer = 0.0
 
 		State.GROUND_RECORDING:
-			_timer += delta
-			_trajectory_samples.append(_make_sample(_timer, pos, vel, snap, grounded))
+			if grounded and horiz_speed <= REST_SPEED_THRESHOLD and snap.move == Vector2.ZERO and not snap.jump:
+				# Continuous rest tracking: reset starting origin to the player's LAST stationary frame
+				_rest_pos = pos
+				_rest_heading = snap.heading
+				if _nav_grid != null:
+					_start_cell = _nav_grid.standing_node(pos)
+				_timer = 0.0
+				_trajectory_samples = [_make_sample(0.0, pos, vel, snap, grounded)]
+			else:
+				_timer += delta
+				_trajectory_samples.append(_make_sample(_timer, pos, vel, snap, grounded))
 
 			if not grounded:
 				_takeoff_pos = pos
