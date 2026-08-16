@@ -91,7 +91,24 @@ var _characters: Array = []
 var _char_index := 0
 
 ## HUD and UI elements.
+const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
+var _custom_font: Font = null
+
 var _hud_canvas: CanvasLayer
+var _top_panel: PanelContainer
+var _left_panel: PanelContainer
+var _right_panel: PanelContainer
+var _bottom_panel: PanelContainer
+var _ui_panels_visible := true
+
+var _tutorial_dialog: PanelContainer
+var _tutorial_page := 0
+var _tutorial_title_lbl: Label
+var _tutorial_page_lbl: Label
+var _tutorial_content_box: VBoxContainer
+var _tutorial_prev_btn: Button
+var _tutorial_next_btn: Button
+
 var _status_label: Label
 var _mode_label: Label
 var _block_info_label: Label
@@ -133,6 +150,9 @@ class EditorCrosshair extends Control:
 
 
 func _ready() -> void:
+	if ResourceLoader.exists(FONT_PATH):
+		_custom_font = load(FONT_PATH) as Font
+
 	BlockRegistry.init_registry()
 	_characters = CharacterPipelineScript.list_characters().filter(
 		func(c: Dictionary) -> bool: return ResourceLoader.exists(c.scene))
@@ -503,14 +523,19 @@ func _unhandled_input(event: InputEvent) -> void:
 
 		if event.pressed:
 			match event.keycode:
+				KEY_B:
+					get_viewport().set_input_as_handled()
+					_toggle_ui_panels_mode()
+					return
 				KEY_TAB:
+					get_viewport().set_input_as_handled()
 					if _mode == EditorMode.BUILD:
 						_set_mode(EditorMode.PLAY_TEST)
 					elif _mode == EditorMode.PLAY_TEST:
 						_set_mode(EditorMode.BUILD)
-					get_viewport().set_input_as_handled()
 					return
 				KEY_R:
+					get_viewport().set_input_as_handled()
 					if _mode == EditorMode.RECORD_SPECIAL_PATH:
 						_recorder.cancel_recording()
 						_set_mode(EditorMode.PLAY_TEST)
@@ -518,23 +543,24 @@ func _unhandled_input(event: InputEvent) -> void:
 						_set_status("已取消录制，按 R 重新录制，按 TAB 返回建造")
 					else:
 						_set_mode(EditorMode.RECORD_SPECIAL_PATH)
-					get_viewport().set_input_as_handled()
 					return
 				KEY_X:
 					if _mode == EditorMode.BUILD:
-						_handle_x_double_tap()
 						get_viewport().set_input_as_handled()
+						_handle_x_double_tap()
 						return
 				KEY_ESCAPE:
-					if _save_load_dialog.visible:
+					get_viewport().set_input_as_handled()
+					if _tutorial_dialog != null and _tutorial_dialog.visible:
+						_close_tutorial_dialog()
+						return
+					if _save_load_dialog != null and _save_load_dialog.visible:
 						_save_load_dialog.visible = false
-						Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-						get_viewport().set_input_as_handled()
+						_update_ui_panels_visibility()
 						return
 					if _mode != EditorMode.BUILD:
 						_recorder.cancel_recording()
 						_set_mode(EditorMode.BUILD)
-						get_viewport().set_input_as_handled()
 						return
 					Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 					get_tree().change_scene_to_file(MENU_SCENE)
@@ -1087,43 +1113,70 @@ func _build_hud() -> void:
 	_hud_canvas.add_child(crosshair)
 
 	# Top Toolbar
-	var top_panel := PanelContainer.new()
-	top_panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	top_panel.custom_minimum_size = Vector2(0, 48)
+	_top_panel = PanelContainer.new()
+	_top_panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_top_panel.custom_minimum_size = Vector2(0, 48)
 	var top_style := StyleBoxFlat.new()
-	top_style.bg_color = Color(0.1, 0.12, 0.15, 0.88)
+	top_style.bg_color = Color(0.1, 0.12, 0.15, 0.92)
 	top_style.set_content_margin_all(8)
-	top_panel.add_theme_stylebox_override("panel", top_style)
-	_hud_canvas.add_child(top_panel)
+	_top_panel.add_theme_stylebox_override("panel", top_style)
+	_hud_canvas.add_child(_top_panel)
 
 	var top_box := HBoxContainer.new()
-	top_box.add_theme_constant_override("separation", 12)
-	top_panel.add_child(top_box)
+	top_box.add_theme_constant_override("separation", 10)
+	_top_panel.add_child(top_box)
 
 	var title_lbl := Label.new()
-	title_lbl.text = "灰烬:启程 · 地图编辑器"
-	title_lbl.add_theme_font_size_override("font_size", 16)
+	title_lbl.text = "灰烬:启程 · 地图工坊"
+	if _custom_font != null:
+		title_lbl.add_theme_font_override("font", _custom_font)
+	title_lbl.add_theme_font_size_override("font_size", 18)
+	title_lbl.modulate = Color(1.0, 0.88, 0.35)
 	top_box.add_child(title_lbl)
+
+	top_box.add_child(VSeparator.new())
+
+	var guide_btn := Button.new()
+	guide_btn.text = "📖 特殊操作指南"
+	if _custom_font != null:
+		guide_btn.add_theme_font_override("font", _custom_font)
+	guide_btn.pressed.connect(func() -> void: _open_tutorial_dialog(0))
+	top_box.add_child(guide_btn)
+
+	var b_toggle_btn := Button.new()
+	b_toggle_btn.text = "切换沉浸/面板 (B)"
+	if _custom_font != null:
+		b_toggle_btn.add_theme_font_override("font", _custom_font)
+	b_toggle_btn.pressed.connect(_toggle_ui_panels_mode)
+	top_box.add_child(b_toggle_btn)
 
 	top_box.add_child(VSeparator.new())
 
 	var new_btn := Button.new()
 	new_btn.text = "新建 (New)"
+	if _custom_font != null:
+		new_btn.add_theme_font_override("font", _custom_font)
 	new_btn.pressed.connect(new_map)
 	top_box.add_child(new_btn)
 
 	var save_btn := Button.new()
 	save_btn.text = "保存 (Save)"
+	if _custom_font != null:
+		save_btn.add_theme_font_override("font", _custom_font)
 	save_btn.pressed.connect(func() -> void: _open_save_dialog())
 	top_box.add_child(save_btn)
 
 	var load_btn := Button.new()
 	load_btn.text = "加载 (Load)"
+	if _custom_font != null:
+		load_btn.add_theme_font_override("font", _custom_font)
 	load_btn.pressed.connect(func() -> void: _open_load_dialog())
 	top_box.add_child(load_btn)
 
 	var clear_btn := Button.new()
 	clear_btn.text = "清空方块"
+	if _custom_font != null:
+		clear_btn.add_theme_font_override("font", _custom_font)
 	clear_btn.pressed.connect(_clear_all_blocks)
 	top_box.add_child(clear_btn)
 
@@ -1131,36 +1184,45 @@ func _build_hud() -> void:
 
 	var play_btn := Button.new()
 	play_btn.text = "操控试玩 (TAB)"
+	if _custom_font != null:
+		play_btn.add_theme_font_override("font", _custom_font)
 	play_btn.pressed.connect(func() -> void: _set_mode(EditorMode.PLAY_TEST))
 	top_box.add_child(play_btn)
 
 	var rec_btn := Button.new()
 	rec_btn.text = "录制特殊跳跃 (R)"
+	if _custom_font != null:
+		rec_btn.add_theme_font_override("font", _custom_font)
 	rec_btn.pressed.connect(func() -> void: _set_mode(EditorMode.RECORD_SPECIAL_PATH))
 	top_box.add_child(rec_btn)
 
 	top_box.add_child(VSeparator.new())
 
 	var menu_btn := Button.new()
-	menu_btn.text = "返回主菜单 (ESC)"
-	menu_btn.pressed.connect(func() -> void: get_tree().change_scene_to_file(MENU_SCENE))
+	menu_btn.text = "返回 (ESC)"
+	if _custom_font != null:
+		menu_btn.add_theme_font_override("font", _custom_font)
+	menu_btn.pressed.connect(func() -> void:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		get_tree().change_scene_to_file(MENU_SCENE)
+	)
 	top_box.add_child(menu_btn)
 
 	# Left Sidebar: Block Palette and Dimensions
-	var left_panel := PanelContainer.new()
-	left_panel.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-	left_panel.offset_top = 56
-	left_panel.offset_bottom = -36
-	left_panel.custom_minimum_size = Vector2(230, 0)
+	_left_panel = PanelContainer.new()
+	_left_panel.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	_left_panel.offset_top = 56
+	_left_panel.offset_bottom = -36
+	_left_panel.custom_minimum_size = Vector2(230, 0)
 	var left_style := StyleBoxFlat.new()
-	left_style.bg_color = Color(0.11, 0.13, 0.16, 0.85)
+	left_style.bg_color = Color(0.11, 0.13, 0.16, 0.88)
 	left_style.set_content_margin_all(10)
-	left_panel.add_theme_stylebox_override("panel", left_style)
-	_hud_canvas.add_child(left_panel)
+	_left_panel.add_theme_stylebox_override("panel", left_style)
+	_hud_canvas.add_child(_left_panel)
 
 	var left_scroll := ScrollContainer.new()
 	left_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	left_panel.add_child(left_scroll)
+	_left_panel.add_child(left_scroll)
 
 	var left_vbox := VBoxContainer.new()
 	left_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1169,7 +1231,9 @@ func _build_hud() -> void:
 
 	var palette_lbl := Label.new()
 	palette_lbl.text = "方块种类 (Type)"
-	palette_lbl.add_theme_font_size_override("font_size", 14)
+	if _custom_font != null:
+		palette_lbl.add_theme_font_override("font", _custom_font)
+	palette_lbl.add_theme_font_size_override("font_size", 15)
 	left_vbox.add_child(palette_lbl)
 
 	var type_opt := OptionButton.new()
@@ -1182,70 +1246,112 @@ func _build_hud() -> void:
 	)
 	left_vbox.add_child(type_opt)
 
-	left_vbox.add_child(HSeparator.new())
+	var size_lbl := Label.new()
+	size_lbl.text = "方块尺寸 (Size X Y Z)"
+	if _custom_font != null:
+		size_lbl.add_theme_font_override("font", _custom_font)
+	size_lbl.add_theme_font_size_override("font_size", 15)
+	left_vbox.add_child(size_lbl)
 
-	var size_title := Label.new()
-	size_title.text = "方块尺寸 (Size X/Y/Z)"
-	size_title.add_theme_font_size_override("font_size", 14)
-	left_vbox.add_child(size_title)
-
-	var sx_box := _make_dim_slider("长度 X (宽)", 1, 10, _current_block_size.x, func(val: int) -> void:
-		_current_block_size.x = val
-		_update_block_info()
-	)
-	left_vbox.add_child(sx_box)
-
-	var sy_box := _make_dim_slider("高度 Y (高)", 1, 8, _current_block_size.y, func(val: int) -> void:
-		_current_block_size.y = val
-		_update_block_info()
-	)
-	left_vbox.add_child(sy_box)
-
-	var sz_box := _make_dim_slider("宽度 Z (深)", 1, 10, _current_block_size.z, func(val: int) -> void:
-		_current_block_size.z = val
-		_update_block_info()
-	)
-	left_vbox.add_child(sz_box)
-
-	left_vbox.add_child(HSeparator.new())
-
-	var preset_title := Label.new()
-	preset_title.text = "尺寸预设 (Presets)"
-	preset_title.add_theme_font_size_override("font_size", 13)
-	left_vbox.add_child(preset_title)
+	var presets_lbl := Label.new()
+	presets_lbl.text = "快捷尺寸预设:"
+	if _custom_font != null:
+		presets_lbl.add_theme_font_override("font", _custom_font)
+	presets_lbl.add_theme_font_size_override("font_size", 13)
+	presets_lbl.modulate = Color(1, 1, 1, 0.7)
+	left_vbox.add_child(presets_lbl)
 
 	var preset_grid := GridContainer.new()
 	preset_grid.columns = 2
+	preset_grid.add_theme_constant_override("h_separation", 6)
+	preset_grid.add_theme_constant_override("v_separation", 6)
 	left_vbox.add_child(preset_grid)
 
-	_add_preset_btn(preset_grid, "1x1x1 标准", Vector3i(1, 1, 1))
-	_add_preset_btn(preset_grid, "2x1x2 平台", Vector3i(2, 1, 2))
-	_add_preset_btn(preset_grid, "4x1x4 大平台", Vector3i(4, 1, 4))
-	_add_preset_btn(preset_grid, "1x4x1 立柱", Vector3i(1, 4, 1))
-	_add_preset_btn(preset_grid, "4x3x1 高墙", Vector3i(4, 3, 1))
-	_add_preset_btn(preset_grid, "2x2x2 方体", Vector3i(2, 2, 2))
+	var presets: Array = [
+		{"label": "1x1x1 标准", "size": Vector3i(1, 1, 1)},
+		{"label": "2x1x1 平台", "size": Vector3i(2, 1, 1)},
+		{"label": "1x2x1 立柱", "size": Vector3i(1, 2, 1)},
+		{"label": "2x2x1 方台", "size": Vector3i(2, 2, 1)},
+		{"label": "3x1x1 长条", "size": Vector3i(3, 1, 1)},
+		{"label": "2x2x2 大块", "size": Vector3i(2, 2, 2)},
+		{"label": "4x1x2 高台", "size": Vector3i(4, 1, 2)},
+		{"label": "1x3x1 高柱", "size": Vector3i(1, 3, 1)},
+	]
+	for p in presets:
+		var p_btn := Button.new()
+		p_btn.text = p.label
+		if _custom_font != null:
+			p_btn.add_theme_font_override("font", _custom_font)
+		p_btn.custom_minimum_size = Vector2(95, 28)
+		p_btn.add_theme_font_size_override("font_size", 12)
+		var p_size: Vector3i = p.size
+		p_btn.pressed.connect(func() -> void:
+			_current_block_size = p_size
+			_update_block_info()
+		)
+		preset_grid.add_child(p_btn)
+
+	var custom_grid := GridContainer.new()
+	custom_grid.columns = 2
+	left_vbox.add_child(custom_grid)
+
+	custom_grid.add_child(_make_label("X (长):"))
+	var spin_x := SpinBox.new()
+	spin_x.min_value = 1
+	spin_x.max_value = 16
+	spin_x.value = _current_block_size.x
+	spin_x.value_changed.connect(func(v: float) -> void:
+		_current_block_size.x = int(v)
+		_update_block_info()
+	)
+	custom_grid.add_child(spin_x)
+
+	custom_grid.add_child(_make_label("Y (高):"))
+	var spin_y := SpinBox.new()
+	spin_y.min_value = 1
+	spin_y.max_value = 12
+	spin_y.value = _current_block_size.y
+	spin_y.value_changed.connect(func(v: float) -> void:
+		_current_block_size.y = int(v)
+		_update_block_info()
+	)
+	custom_grid.add_child(spin_y)
+
+	custom_grid.add_child(_make_label("Z (宽):"))
+	var spin_z := SpinBox.new()
+	spin_z.min_value = 1
+	spin_z.max_value = 16
+	spin_z.value = _current_block_size.z
+	spin_z.value_changed.connect(func(v: float) -> void:
+		_current_block_size.z = int(v)
+		_update_block_info()
+	)
+	custom_grid.add_child(spin_z)
 
 	_block_info_label = Label.new()
-	_block_info_label.text = "当前: cube (1x1x1)"
+	_block_info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _custom_font != null:
+		_block_info_label.add_theme_font_override("font", _custom_font)
 	_block_info_label.add_theme_font_size_override("font_size", 12)
-	_block_info_label.modulate = Color(0.7, 0.85, 1.0)
+	_block_info_label.modulate = Color(0.3, 0.9, 1.0)
 	left_vbox.add_child(_block_info_label)
+	_update_block_info()
 
 	# Right Sidebar: Special Paths List and Management
-	var right_panel := PanelContainer.new()
-	right_panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
-	right_panel.offset_top = 56
-	right_panel.offset_bottom = -36
-	right_panel.custom_minimum_size = Vector2(250, 0)
+	_right_panel = PanelContainer.new()
+	_right_panel.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	_right_panel.offset_top = 56
+	_right_panel.offset_bottom = -36
+	_right_panel.custom_minimum_size = Vector2(250, 0)
 	var right_style := StyleBoxFlat.new()
-	right_style.bg_color = Color(0.11, 0.13, 0.16, 0.85)
+	right_style.bg_color = Color(0.11, 0.13, 0.16, 0.88)
 	right_style.set_content_margin_all(10)
-	right_panel.add_theme_stylebox_override("panel", right_style)
-	_hud_canvas.add_child(right_panel)
+	_right_panel.add_theme_stylebox_override("panel", right_style)
+	_hud_canvas.add_child(_right_panel)
 
 	var right_scroll := ScrollContainer.new()
 	right_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	right_panel.add_child(right_scroll)
+	_right_panel.add_child(right_scroll)
 
 	var right_vbox := VBoxContainer.new()
 	right_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1254,13 +1360,17 @@ func _build_hud() -> void:
 
 	var sp_title := Label.new()
 	sp_title.text = "特殊路径连接 (Special Paths)"
-	sp_title.add_theme_font_size_override("font_size", 14)
+	if _custom_font != null:
+		sp_title.add_theme_font_override("font", _custom_font)
+	sp_title.add_theme_font_size_override("font_size", 15)
 	right_vbox.add_child(sp_title)
 
 	var sp_hint := Label.new()
-	sp_hint.text = "记录原本物理判定不可达的跳跃连接"
+	sp_hint.text = "准星对准空中绿线，连按两下 X 可精准删除"
 	sp_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	sp_hint.add_theme_font_size_override("font_size", 11)
+	if _custom_font != null:
+		sp_hint.add_theme_font_override("font", _custom_font)
+	sp_hint.add_theme_font_size_override("font_size", 12)
 	sp_hint.modulate = Color(1, 1, 1, 0.6)
 	right_vbox.add_child(sp_hint)
 
@@ -1270,34 +1380,363 @@ func _build_hud() -> void:
 	right_vbox.add_child(_special_path_list_box)
 
 	# Bottom Status Bar
-	var bottom_panel := PanelContainer.new()
-	bottom_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	bottom_panel.custom_minimum_size = Vector2(0, 32)
+	_bottom_panel = PanelContainer.new()
+	_bottom_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_bottom_panel.custom_minimum_size = Vector2(0, 36)
 	var bottom_style := StyleBoxFlat.new()
-	bottom_style.bg_color = Color(0.08, 0.09, 0.11, 0.92)
+	bottom_style.bg_color = Color(0.08, 0.09, 0.11, 0.95)
 	bottom_style.set_content_margin_all(6)
-	bottom_panel.add_theme_stylebox_override("panel", bottom_style)
-	_hud_canvas.add_child(bottom_panel)
+	_bottom_panel.add_theme_stylebox_override("panel", bottom_style)
+	_hud_canvas.add_child(_bottom_panel)
 
 	var bottom_box := HBoxContainer.new()
-	bottom_panel.add_child(bottom_box)
+	_bottom_panel.add_child(bottom_box)
 
 	_mode_label = Label.new()
 	_mode_label.text = "模式: 【自由建造】"
-	_mode_label.add_theme_font_size_override("font_size", 12)
+	if _custom_font != null:
+		_mode_label.add_theme_font_override("font", _custom_font)
+	_mode_label.add_theme_font_size_override("font_size", 13)
 	_mode_label.modulate = Color(0.4, 0.85, 1.0)
 	bottom_box.add_child(_mode_label)
 
 	bottom_box.add_child(VSeparator.new())
 
+	var b_hint_lbl := Label.new()
+	b_hint_lbl.text = "[B 键]: 切换面板/沉浸模式"
+	if _custom_font != null:
+		b_hint_lbl.add_theme_font_override("font", _custom_font)
+	b_hint_lbl.add_theme_font_size_override("font_size", 13)
+	b_hint_lbl.modulate = Color(1.0, 0.85, 0.3)
+	bottom_box.add_child(b_hint_lbl)
+
+	bottom_box.add_child(VSeparator.new())
+
 	_status_label = Label.new()
 	_status_label.text = _status_text
-	_status_label.add_theme_font_size_override("font_size", 12)
+	if _custom_font != null:
+		_status_label.add_theme_font_override("font", _custom_font)
+	_status_label.add_theme_font_size_override("font_size", 13)
 	bottom_box.add_child(_status_label)
 
 	_build_recording_banner()
 	_build_save_load_dialog()
+	_build_tutorial_dialog()
 	_refresh_special_paths_ui()
+
+
+func _toggle_ui_panels_mode() -> void:
+	_ui_panels_visible = not _ui_panels_visible
+	_update_ui_panels_visibility()
+
+
+func _update_ui_panels_visibility() -> void:
+	if _top_panel != null:
+		_top_panel.visible = _ui_panels_visible
+	if _left_panel != null:
+		_left_panel.visible = _ui_panels_visible
+	if _right_panel != null:
+		_right_panel.visible = _ui_panels_visible
+
+	if _ui_panels_visible:
+		_cursor_free = true
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_set_status("【属性面板模式】鼠标指针可用，点击左侧调整材质尺寸或保存。按 B 切换沉浸视角")
+	else:
+		_cursor_free = false
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		_set_status("【沉浸模式】鼠标隐藏，视角旋转与放置。按 B 呼出属性面板与指针")
+
+
+func _open_tutorial_dialog(page: int = 0) -> void:
+	_render_tutorial_page(page)
+	_tutorial_dialog.visible = true
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_cursor_free = true
+
+
+func _close_tutorial_dialog() -> void:
+	_tutorial_dialog.visible = false
+	_update_ui_panels_visibility()
+
+
+func _make_label(txt: String) -> Label:
+	var l := Label.new()
+	l.text = txt
+	if _custom_font != null:
+		l.add_theme_font_override("font", _custom_font)
+	l.add_theme_font_size_override("font_size", 12)
+	return l
+
+
+func _build_tutorial_dialog() -> void:
+	_tutorial_dialog = PanelContainer.new()
+	_tutorial_dialog.set_anchors_preset(Control.PRESET_CENTER)
+	_tutorial_dialog.offset_left = -340
+	_tutorial_dialog.offset_right = 340
+	_tutorial_dialog.offset_top = -240
+	_tutorial_dialog.offset_bottom = 240
+	_tutorial_dialog.custom_minimum_size = Vector2(680, 480)
+	_tutorial_dialog.visible = false
+
+	var diag_style := StyleBoxFlat.new()
+	diag_style.bg_color = Color(0.09, 0.11, 0.15, 0.98)
+	diag_style.set_corner_radius_all(12)
+	diag_style.set_border_width_all(2)
+	diag_style.border_color = Color(0.2, 0.8, 1.0)
+	diag_style.set_content_margin_all(20)
+	_tutorial_dialog.add_theme_stylebox_override("panel", diag_style)
+	_hud_canvas.add_child(_tutorial_dialog)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 14)
+	_tutorial_dialog.add_child(vbox)
+
+	# Header: Title + Page counter + Close button
+	var head_hbox := HBoxContainer.new()
+	head_hbox.add_theme_constant_override("separation", 12)
+	vbox.add_child(head_hbox)
+
+	var icon_tex := TextureRect.new()
+	if ResourceLoader.exists("res://assets/UI_assets/cubes.svg"):
+		icon_tex.texture = load("res://assets/UI_assets/cubes.svg")
+	icon_tex.custom_minimum_size = Vector2(32, 32)
+	icon_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_tex.modulate = Color(0.2, 0.85, 1.0)
+	head_hbox.add_child(icon_tex)
+
+	_tutorial_title_lbl = Label.new()
+	_tutorial_title_lbl.text = "地图工坊 · 特殊操作与录制指南"
+	if _custom_font != null:
+		_tutorial_title_lbl.add_theme_font_override("font", _custom_font)
+	_tutorial_title_lbl.add_theme_font_size_override("font_size", 22)
+	_tutorial_title_lbl.modulate = Color(0.2, 0.9, 1.0)
+	_tutorial_title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head_hbox.add_child(_tutorial_title_lbl)
+
+	_tutorial_page_lbl = Label.new()
+	_tutorial_page_lbl.text = "第 1 / 4 页"
+	if _custom_font != null:
+		_tutorial_page_lbl.add_theme_font_override("font", _custom_font)
+	_tutorial_page_lbl.add_theme_font_size_override("font_size", 16)
+	_tutorial_page_lbl.modulate = Color(1.0, 0.85, 0.3)
+	head_hbox.add_child(_tutorial_page_lbl)
+
+	var skip_btn := Button.new()
+	skip_btn.text = " 关闭 (ESC) "
+	if _custom_font != null:
+		skip_btn.add_theme_font_override("font", _custom_font)
+	skip_btn.pressed.connect(_close_tutorial_dialog)
+	head_hbox.add_child(skip_btn)
+
+	# Content Area
+	_tutorial_content_box = VBoxContainer.new()
+	_tutorial_content_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_tutorial_content_box.add_theme_constant_override("separation", 12)
+	vbox.add_child(_tutorial_content_box)
+
+	# Bottom Navigation
+	var nav_hbox := HBoxContainer.new()
+	nav_hbox.add_theme_constant_override("separation", 24)
+	nav_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(nav_hbox)
+
+	_tutorial_prev_btn = Button.new()
+	_tutorial_prev_btn.text = "← 上一页 (Previous)"
+	if _custom_font != null:
+		_tutorial_prev_btn.add_theme_font_override("font", _custom_font)
+	_tutorial_prev_btn.add_theme_font_size_override("font_size", 16)
+	_tutorial_prev_btn.custom_minimum_size = Vector2(160, 40)
+	_tutorial_prev_btn.pressed.connect(func() -> void: _render_tutorial_page(_tutorial_page - 1))
+	nav_hbox.add_child(_tutorial_prev_btn)
+
+	_tutorial_next_btn = Button.new()
+	_tutorial_next_btn.text = "下一页 (Next) →"
+	if _custom_font != null:
+		_tutorial_next_btn.add_theme_font_override("font", _custom_font)
+	_tutorial_next_btn.add_theme_font_size_override("font_size", 16)
+	_tutorial_next_btn.custom_minimum_size = Vector2(180, 40)
+	_tutorial_next_btn.pressed.connect(func() -> void:
+		if _tutorial_page >= 3:
+			_close_tutorial_dialog()
+		else:
+			_render_tutorial_page(_tutorial_page + 1)
+	)
+	nav_hbox.add_child(_tutorial_next_btn)
+
+	_render_tutorial_page(0)
+
+
+func _render_tutorial_page(page: int) -> void:
+	_tutorial_page = clamp(page, 0, 3)
+	if _tutorial_page_lbl != null:
+		_tutorial_page_lbl.text = "第 %d / 4 页" % (_tutorial_page + 1)
+	if _tutorial_prev_btn != null:
+		_tutorial_prev_btn.disabled = (_tutorial_page == 0)
+	if _tutorial_next_btn != null:
+		if _tutorial_page == 3:
+			_tutorial_next_btn.text = "开始探索创作 (Start) ✓"
+		else:
+			_tutorial_next_btn.text = "下一页 (Next) →"
+
+	if _tutorial_content_box == null:
+		return
+
+	for child in _tutorial_content_box.get_children():
+		child.queue_free()
+
+	match _tutorial_page:
+		0:
+			_build_tutorial_page_0()
+		1:
+			_build_tutorial_page_1()
+		2:
+			_build_tutorial_page_2()
+		3:
+			_build_tutorial_page_3()
+
+
+func _build_tutorial_page_0() -> void:
+	var sub := Label.new()
+	sub.text = "【一、视角模式与面板一键切换】"
+	if _custom_font != null:
+		sub.add_theme_font_override("font", _custom_font)
+	sub.add_theme_font_size_override("font_size", 18)
+	sub.modulate = Color(1.0, 0.85, 0.3)
+	_tutorial_content_box.add_child(sub)
+
+	_add_tutorial_step(_tutorial_content_box, "B", "按 B 键切换面板与沉浸视角",
+		"按 B 键在【属性面板模式（鼠标指针工作，可点击调整尺寸材质与保存）】与【沉浸模式（鼠标隐藏，自由旋转视角飞行与瞄准）】之间随时切换。")
+	_add_tutorial_step(_tutorial_content_box, "TAB", "按 TAB 键切换建造与角色试跑",
+		"在【第一人称自由飞行建造】与【第三人称角色试玩】之间一键切换。试跑可实地检验跳跃距离与落点。")
+	_add_tutorial_step(_tutorial_content_box, "W", "自由飞行巡航控制",
+		"飞行模式下使用 WASD 水平巡航，Space 空格向上升空，Ctrl / C 向下降落，鼠标滚轮可调节飞行速度。")
+
+
+func _build_tutorial_page_1() -> void:
+	var sub := Label.new()
+	sub.text = "【二、多尺寸方块与材质快速搭建】"
+	if _custom_font != null:
+		sub.add_theme_font_override("font", _custom_font)
+	sub.add_theme_font_size_override("font_size", 18)
+	sub.modulate = Color(1.0, 0.85, 0.3)
+	_tutorial_content_box.add_child(sub)
+
+	_add_tutorial_step(_tutorial_content_box, "LMB", "鼠标左键 (LMB) 放置方块",
+		"准星对准地面或已有方块表面，点击左键放置当前选中的方块。在左侧面板可自由选择 Cube、Slab、Stairs 等类型与 2x1x1、4x1x2 等丰富尺寸。")
+	_add_tutorial_step(_tutorial_content_box, "RMB", "鼠标右键 (RMB) 快速拆除",
+		"准星对准任意方块，点击右键即可瞬间拆除整块积木。")
+	_add_tutorial_step(_tutorial_content_box, "SHIFT", "Shift + 左键 实时指定 NPC 寻路测试",
+		"准星对准地图任意地面，按住 Shift 点击左键，可指定 NPC 按照其真实物理能力规划路径前往该点。")
+
+
+func _build_tutorial_page_2() -> void:
+	var sub := Label.new()
+	sub.text = "【三、特殊跳跃 / 极限动力学轨迹录制】"
+	if _custom_font != null:
+		sub.add_theme_font_override("font", _custom_font)
+	sub.add_theme_font_size_override("font_size", 18)
+	sub.modulate = Color(1.0, 0.85, 0.3)
+	_tutorial_content_box.add_child(sub)
+
+	_add_tutorial_step(_tutorial_content_box, "R", "按 R 键就绪录制特殊跳跃",
+		"按 TAB 切换为角色试跑后，在悬崖起跳边缘停下脚步保持静止。按 R 键进入录制准备状态。")
+	_add_tutorial_step(_tutorial_content_box, "SPACE", "助跑起跳与自动航迹截取",
+		"顶部横幅提示【🟢 准备就绪，可以起跳】后，向目标高台全力助跑起跳。落地瞬间系统会自动从你起跳前的最后一帧零速度点开始，完整截取空中动力学航迹！")
+	_add_tutorial_step(_tutorial_content_box, "AI", "NPC (AI) 智能学习复现",
+		"录制成功的航迹会化为绿色轨迹线。AI 追缉或寻路时，到达该起跳点会自动无缝复现你的跳跃动作！")
+
+
+func _build_tutorial_page_3() -> void:
+	var sub := Label.new()
+	sub.text = "【四、轨迹精准删除与地图导出对决】"
+	if _custom_font != null:
+		sub.add_theme_font_override("font", _custom_font)
+	sub.add_theme_font_size_override("font_size", 18)
+	sub.modulate = Color(1.0, 0.85, 0.3)
+	_tutorial_content_box.add_child(sub)
+
+	_add_tutorial_step(_tutorial_content_box, "X", "连按两下 X 快速删除选中轨迹",
+		"在建造模式下，将准星对准空中的绿色特殊跳跃轨迹线（轨迹会高亮），连续按两下 X 键即可精准删除该段轨迹记录。")
+	_add_tutorial_step(_tutorial_content_box, "SAVE", "保存地图 (Save Map)",
+		"按 B 键呼出顶部工具栏，点击【保存 (Save)】输入地图名称，即可将包含全部方块与特殊跳跃的地图永久保存。")
+	_add_tutorial_step(_tutorial_content_box, "PLAY", "导入追缉模式实战对决",
+		"返回主大厅选择【开始追缉逃生 (Pursuit)】，在地图列表中选择你刚才保存的地图，即可在自己打造的专属战场中展开 1v1 极限逃生对决！")
+
+
+func _add_tutorial_step(parent: VBoxContainer, key_or_tag: String, title: String, desc: String) -> void:
+	var card := PanelContainer.new()
+	var c_style := StyleBoxFlat.new()
+	c_style.bg_color = Color(0.13, 0.15, 0.20, 0.85)
+	c_style.set_corner_radius_all(8)
+	c_style.set_border_width_all(1)
+	c_style.border_color = Color(0.25, 0.30, 0.40)
+	c_style.set_content_margin_all(10)
+	card.add_theme_stylebox_override("panel", c_style)
+	parent.add_child(card)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 12)
+	card.add_child(hbox)
+
+	var icon_widget := _create_tutorial_icon(key_or_tag)
+	hbox.add_child(icon_widget)
+
+	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 3)
+	hbox.add_child(vbox)
+
+	var t_lbl := Label.new()
+	t_lbl.text = title
+	if _custom_font != null:
+		t_lbl.add_theme_font_override("font", _custom_font)
+	t_lbl.add_theme_font_size_override("font_size", 16)
+	t_lbl.modulate = Color(0.35, 0.9, 1.0)
+	vbox.add_child(t_lbl)
+
+	var d_lbl := Label.new()
+	d_lbl.text = desc
+	d_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _custom_font != null:
+		d_lbl.add_theme_font_override("font", _custom_font)
+	d_lbl.add_theme_font_size_override("font_size", 13)
+	d_lbl.modulate = Color(0.85, 0.88, 0.92, 0.9)
+	vbox.add_child(d_lbl)
+
+
+func _create_tutorial_icon(key_tag: String) -> Control:
+	var png_path := "res://assets/buttons_pattern/%s.png" % key_tag
+	if ResourceLoader.exists(png_path):
+		var tex := TextureRect.new()
+		tex.texture = load(png_path)
+		tex.custom_minimum_size = Vector2(36, 36)
+		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		return tex
+
+	# If no png exists, render an attractive keycap badge
+	var badge := PanelContainer.new()
+	var b_style := StyleBoxFlat.new()
+	b_style.bg_color = Color(0.20, 0.24, 0.32, 0.95)
+	b_style.set_corner_radius_all(6)
+	b_style.set_border_width_all(1)
+	b_style.border_color = Color(0.4, 0.6, 0.8)
+	b_style.set_content_margin_all(6)
+	badge.add_theme_stylebox_override("panel", b_style)
+	badge.custom_minimum_size = Vector2(40, 36)
+
+	var lbl := Label.new()
+	lbl.text = key_tag
+	if _custom_font != null:
+		lbl.add_theme_font_override("font", _custom_font)
+	lbl.add_theme_font_size_override("font_size", 14)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.modulate = Color(1.0, 0.88, 0.35)
+	badge.add_child(lbl)
+	return badge
 
 
 func _build_recording_banner() -> void:
