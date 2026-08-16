@@ -8,6 +8,12 @@ const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 
 @export var footstep_enabled := true
 var _footstep_distance := 0.0
+var _bone_left_foot := -1
+var _bone_right_foot := -1
+var _left_foot_planted := true
+var _right_foot_planted := true
+var _left_foot_rest_y := 0.12
+var _right_foot_rest_y := 0.12
 
 const CLIP_IDLE := "idle"
 const CLIP_WALK := "walk"
@@ -505,6 +511,7 @@ func setup(visual: Node3D, follow_camera: Node3D) -> void:
 	_prepare_clips()
 	_bake_reversals()
 	_build_tree()
+	_cache_foot_bones()
 	if intent_source == null:
 		intent_source = PlayerIntentSourceScript.new()
 	if _clearance == null:
@@ -1210,41 +1217,93 @@ func _wish_direction() -> Vector3:
 	return (frame.z * _intent.move.y - frame.x * _intent.move.x).normalized()
 
 
+func _cache_foot_bones() -> void:
+	if character == null:
+		return
+	var skeleton := character.get("skeleton") as Skeleton3D
+	if skeleton == null:
+		return
+	_bone_left_foot = skeleton.find_bone("LeftFoot")
+	if _bone_left_foot < 0:
+		_bone_left_foot = skeleton.find_bone("LeftToes")
+	_bone_right_foot = skeleton.find_bone("RightFoot")
+	if _bone_right_foot < 0:
+		_bone_right_foot = skeleton.find_bone("RightToes")
+
+	if _bone_left_foot >= 0:
+		_left_foot_rest_y = skeleton.get_bone_rest(_bone_left_foot).origin.y
+	if _bone_right_foot >= 0:
+		_right_foot_rest_y = skeleton.get_bone_rest(_bone_right_foot).origin.y
+
+
 func _update_footsteps(delta: float) -> void:
 	if not footstep_enabled or not is_on_floor():
+		_left_foot_planted = false
+		_right_foot_planted = false
 		_footstep_distance = 0.0
 		return
 
 	if state != State.WALK and state != State.RUN and state != State.CROUCH and state != State.BRAKING:
+		_left_foot_planted = true
+		_right_foot_planted = true
 		return
 
 	var h_vel := Vector2(velocity.x, velocity.z)
 	var speed_val := h_vel.length()
 	if speed_val < 0.2:
+		_left_foot_planted = true
+		_right_foot_planted = true
 		return
 
-	# Calibrated step stride distance (meters per individual foot contact)
-	var step_interval := 0.62 # Walk stride: 1 step per ~0.56s at 1.1 m/s
+	var skeleton: Skeleton3D = null
+	if character != null:
+		skeleton = character.get("skeleton") as Skeleton3D
+
+	if _bone_left_foot < 0 and skeleton != null:
+		_cache_foot_bones()
+
 	var step_vol := -13.0
 	var base_pitch := 1.0
-
 	if state == State.RUN:
-		step_interval = 1.15 # Sprint stride: 1 step per ~0.32s at 3.6 m/s (matches sprint animation footfalls!)
 		step_vol = -7.5
-		base_pitch = 1.06
+		base_pitch = 1.02
 	elif state == State.CROUCH:
-		step_interval = 0.38
 		step_vol = -18.0
 		base_pitch = 0.92
 	elif state == State.BRAKING:
-		step_interval = 0.55
 		step_vol = -10.0
-		base_pitch = 0.95
+		base_pitch = 0.96
 
-	_footstep_distance += speed_val * delta
-	if _footstep_distance >= step_interval:
-		_footstep_distance = fmod(_footstep_distance, step_interval)
-		AudioManagerScript.play_footstep(step_vol, base_pitch * randf_range(0.96, 1.04))
+	if skeleton != null and _bone_left_foot >= 0 and _bone_right_foot >= 0:
+		var left_y := skeleton.get_bone_global_pose(_bone_left_foot).origin.y
+		var right_y := skeleton.get_bone_global_pose(_bone_right_foot).origin.y
+
+		var left_thresh := _left_foot_rest_y * 1.35 + 0.04
+		var right_thresh := _right_foot_rest_y * 1.35 + 0.04
+		var lift_margin := 0.07
+
+		# Left foot touch down
+		if left_y <= left_thresh:
+			if not _left_foot_planted:
+				_left_foot_planted = true
+				AudioManagerScript.play_footstep(step_vol, base_pitch * 0.97 * randf_range(0.98, 1.02))
+		elif left_y > left_thresh + lift_margin:
+			_left_foot_planted = false
+
+		# Right foot touch down
+		if right_y <= right_thresh:
+			if not _right_foot_planted:
+				_right_foot_planted = true
+				AudioManagerScript.play_footstep(step_vol, base_pitch * 1.03 * randf_range(0.98, 1.02))
+		elif right_y > right_thresh + lift_margin:
+			_right_foot_planted = false
+	else:
+		# Fallback: Relaxed natural step cadence
+		var step_interval := 0.72 if state != State.RUN else 1.30
+		_footstep_distance += speed_val * delta
+		if _footstep_distance >= step_interval:
+			_footstep_distance = fmod(_footstep_distance, step_interval)
+			AudioManagerScript.play_footstep(step_vol, base_pitch * randf_range(0.96, 1.04))
 
 
 ## Puts `ground_speed` on the velocity along the character's own facing, leaving
