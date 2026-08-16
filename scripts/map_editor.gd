@@ -105,6 +105,9 @@ var _interactive_banner_icon: TextureRect
 var _interactive_banner_title: Label
 var _interactive_banner_sub: Label
 var _interactive_complete_dialog: PanelContainer
+var _tutorial_arrow: Node3D = null
+var _tutorial_arrow_base_pos: Vector3 = Vector3.ZERO
+var _tutorial_arrow_time: float = 0.0
 
 var _hud_canvas: CanvasLayer
 var _top_panel: PanelContainer
@@ -519,6 +522,10 @@ func _process(delta: float) -> void:
 	if _mode == EditorMode.BUILD and not _cursor_free:
 		_update_builder_flight(delta)
 		_update_targeting()
+	if _tutorial_arrow != null and _tutorial_arrow.visible:
+		_tutorial_arrow_time += delta
+		_tutorial_arrow.position = _tutorial_arrow_base_pos + Vector3(0.0, 0.45 + sin(_tutorial_arrow_time * 5.0) * 0.15, 0.0)
+		_tutorial_arrow.rotation.y += delta * 2.5
 
 
 func _physics_process(delta: float) -> void:
@@ -817,6 +824,10 @@ func _npc_occupies_cell(cell: Vector3i) -> bool:
 
 
 func _place_block_at(grid_pos: Vector3i) -> void:
+	if _interactive_tutorial_active and _tutorial_step == 1:
+		_set_status("【任务 2/6】请先拆除上方浮动箭头指示的方块，暂不可放置新方块哦")
+		return
+
 	if not _can_place_block(grid_pos, _current_block_size):
 		_set_status("该位置无法放置方块（超出边界或已被占用）")
 		return
@@ -842,6 +853,12 @@ func _place_block_at(grid_pos: Vector3i) -> void:
 		inst.type_id, inst.size, grid_pos.x, grid_pos.y, grid_pos.z])
 
 	if _interactive_tutorial_active and _tutorial_step == 0:
+		var center_pos := Vector3(
+			float(grid_pos.x) + float(_current_block_size.x) * 0.5,
+			float(grid_pos.y) + float(_current_block_size.y),
+			float(grid_pos.z) + float(_current_block_size.z) * 0.5
+		)
+		_show_tutorial_arrow_at(center_pos)
 		_advance_interactive_tutorial(1)
 
 
@@ -865,6 +882,7 @@ func _remove_block_at(grid_pos: Vector3i) -> void:
 	_set_status("已删除方块 %s" % b_id)
 
 	if _interactive_tutorial_active and _tutorial_step == 1:
+		_hide_tutorial_arrow()
 		_advance_interactive_tutorial(2)
 
 
@@ -1729,6 +1747,59 @@ func _spawn_tutorial_glowing_platforms() -> void:
 	_cam_pitch = -0.35
 	_cam_yaw = 0.0
 	_apply_builder_orientation()
+
+
+func _build_tutorial_arrow() -> void:
+	if _tutorial_arrow != null:
+		return
+	_tutorial_arrow = Node3D.new()
+	_tutorial_arrow.name = "TutorialFloatingArrow"
+	_tutorial_arrow.visible = false
+
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.85, 0.2)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.85, 0.2)
+	mat.emission_energy_multiplier = 2.5
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+
+	# Arrow Head (Downward Cone)
+	var head_mesh := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.35
+	cone.bottom_radius = 0.0
+	cone.height = 0.55
+	cone.material = mat
+	head_mesh.mesh = cone
+	head_mesh.position.y = 0.28
+	_tutorial_arrow.add_child(head_mesh)
+
+	# Arrow Shaft (Cylinder)
+	var shaft_mesh := MeshInstance3D.new()
+	var shaft := CylinderMesh.new()
+	shaft.top_radius = 0.12
+	shaft.bottom_radius = 0.12
+	shaft.height = 0.45
+	shaft.material = mat
+	shaft_mesh.mesh = shaft
+	shaft_mesh.position.y = 0.75
+	_tutorial_arrow.add_child(shaft_mesh)
+
+	add_child(_tutorial_arrow)
+
+
+func _show_tutorial_arrow_at(world_pos: Vector3) -> void:
+	if _tutorial_arrow == null:
+		_build_tutorial_arrow()
+	_tutorial_arrow_base_pos = world_pos
+	_tutorial_arrow_time = 0.0
+	_tutorial_arrow.position = world_pos + Vector3(0, 0.45, 0)
+	_tutorial_arrow.visible = true
+
+
+func _hide_tutorial_arrow() -> void:
+	if _tutorial_arrow != null:
+		_tutorial_arrow.visible = false
 
 
 func _toggle_ui_panels_mode() -> void:

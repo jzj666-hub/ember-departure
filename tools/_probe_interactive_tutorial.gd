@@ -70,9 +70,19 @@ func _test_interactive_tutorial_flow() -> void:
 	editor.call("_place_block_at", Vector3i(2, 1, 2))
 	_ok("Placing block advances to Step 1", editor.get("_tutorial_step") == 1)
 
+	var arrow: Node3D = editor.get("_tutorial_arrow")
+	_ok("Floating arrow is visible above placed block", arrow != null and arrow.visible)
+
+	# Try placing another block in Step 1 -> MUST BE DISALLOWED
+	var block_count_before: int = (editor.get("_blocks") as Dictionary).size()
+	editor.call("_place_block_at", Vector3i(4, 1, 4))
+	var block_count_after: int = (editor.get("_blocks") as Dictionary).size()
+	_ok("Placing block is disallowed in Step 1", block_count_after == block_count_before and editor.get("_tutorial_step") == 1)
+
 	# --- Step 1 -> Step 2: Remove the block ---
 	editor.call("_remove_block_at", Vector3i(2, 1, 2))
 	_ok("Removing block advances to Step 2", editor.get("_tutorial_step") == 2)
+	_ok("Floating arrow is hidden after block removal", not arrow.visible)
 
 	# --- Step 2: NPC Pathfinding with Shift+LMB ---
 	editor.call("_recalculate_npc_path", Vector3(5, 0.2, 5))
