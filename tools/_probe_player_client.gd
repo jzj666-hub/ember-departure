@@ -40,8 +40,9 @@ func _test_audio_manager() -> void:
 
 	_ok("AudioManager pool initialized", AudioManagerScript._player_pool.size() == 4)
 
-	# Verify voice asset files exist
+	# Verify voice and background asset files exist
 	var files_to_check := [
+		"res://assets/voice/background/song_of_the_sea.ogg",
 		"res://assets/voice/Voiceover Pack/Male/1.ogg",
 		"res://assets/voice/Voiceover Pack/Male/5.ogg",
 		"res://assets/voice/Voiceover Pack/Male/go.ogg",
@@ -54,6 +55,13 @@ func _test_audio_manager() -> void:
 	]
 	for f in files_to_check:
 		_ok("Asset exists: %s" % f.get_file(), ResourceLoader.exists(f))
+
+	# Test BGM playback
+	AudioManagerScript.play_bgm()
+	_ok("BGM Player exists", AudioManagerScript._bgm_player != null)
+	_ok("BGM stream is set", AudioManagerScript._bgm_player != null and AudioManagerScript._bgm_player.stream != null)
+	_ok("BGM Player is attached", AudioManagerScript._bgm_player.get_parent() != null)
+	AudioManagerScript.stop_bgm()
 
 	dummy.queue_free()
 

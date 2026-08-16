@@ -37,6 +37,8 @@ const DEV_ENTRIES := [
 	},
 ]
 
+const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+
 var _custom_font: Font = null
 var _mode_select_box: VBoxContainer
 var _dev_box: VBoxContainer
@@ -44,6 +46,8 @@ var _dev_box: VBoxContainer
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	AudioManagerScript.init_pool(self)
+	AudioManagerScript.play_bgm("res://assets/voice/background/song_of_the_sea.ogg", -6.0)
 	if ResourceLoader.exists(FONT_PATH):
 		_custom_font = load(FONT_PATH) as Font
 	_build_ui()

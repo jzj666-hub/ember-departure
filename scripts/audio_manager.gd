@@ -2,8 +2,11 @@ class_name AudioManager
 extends Node
 ## Central audio dispatcher for game voiceovers and UI SFX.
 
+const DEFAULT_BGM_PATH := "res://assets/voice/background/song_of_the_sea.ogg"
+
 static var _player_pool: Array[AudioStreamPlayer] = []
 static var _root_node: Node = null
+static var _bgm_player: AudioStreamPlayer = null
 
 
 static func init_pool(root: Node, pool_size: int = 6) -> void:
@@ -14,6 +17,52 @@ static func init_pool(root: Node, pool_size: int = 6) -> void:
 		p.bus = "Master"
 		root.add_child(p)
 		_player_pool.append(p)
+
+	if _bgm_player == null or not is_instance_valid(_bgm_player):
+		_bgm_player = AudioStreamPlayer.new()
+		_bgm_player.name = "BGMPlayer"
+		_bgm_player.bus = "Master"
+
+	if _bgm_player.get_parent() != null and _bgm_player.get_parent() != root:
+		_bgm_player.get_parent().remove_child(_bgm_player)
+	if _bgm_player.get_parent() == null:
+		root.add_child(_bgm_player)
+
+
+static func play_bgm(file_path: String = DEFAULT_BGM_PATH, volume_db: float = -6.0, loop: bool = true) -> void:
+	if not ResourceLoader.exists(file_path):
+		return
+	var stream := load(file_path) as AudioStream
+	if stream == null:
+		return
+	if stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = loop
+
+	if _bgm_player == null or not is_instance_valid(_bgm_player):
+		_bgm_player = AudioStreamPlayer.new()
+		_bgm_player.name = "BGMPlayer"
+		_bgm_player.bus = "Master"
+
+	if _bgm_player.get_parent() == null and _root_node != null and is_instance_valid(_root_node):
+		_root_node.add_child(_bgm_player)
+
+	if _bgm_player.playing and _bgm_player.stream == stream:
+		return
+
+	_bgm_player.stream = stream
+	_bgm_player.volume_db = volume_db
+	if _bgm_player.is_inside_tree():
+		_bgm_player.play()
+
+
+static func stop_bgm() -> void:
+	if _bgm_player != null and is_instance_valid(_bgm_player):
+		_bgm_player.stop()
+
+
+static func set_bgm_volume(volume_db: float) -> void:
+	if _bgm_player != null and is_instance_valid(_bgm_player):
+		_bgm_player.volume_db = volume_db
 
 
 static func play_sound(stream: AudioStream, volume_db: float = 0.0) -> void:

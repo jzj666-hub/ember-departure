@@ -21,6 +21,7 @@ var _map_list: ItemList
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	AudioManagerScript.init_pool(self)
+	AudioManagerScript.play_bgm("res://assets/voice/background/song_of_the_sea.ogg", -6.0)
 	if ResourceLoader.exists(FONT_PATH):
 		_custom_font = load(FONT_PATH) as Font
 	_build_ui()
