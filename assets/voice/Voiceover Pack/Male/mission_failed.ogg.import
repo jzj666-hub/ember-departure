@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://db450qjvlc7n1"
+path="res://.godot/imported/mission_failed.ogg-bc9f65b8b223cfb52db1c1f9aa3860cc.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/voice/Voiceover Pack/Male/mission_failed.ogg"
+dest_files=["res://.godot/imported/mission_failed.ogg-bc9f65b8b223cfb52db1c1f9aa3860cc.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

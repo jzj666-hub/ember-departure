@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://blwam7uqq01bx"
+path="res://.godot/imported/war_call_for_backup.ogg-e8e707e589d9a18d67d747665b821cbd.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/voice/Voiceover Pack/Male/war_call_for_backup.ogg"
+dest_files=["res://.godot/imported/war_call_for_backup.ogg-e8e707e589d9a18d67d747665b821cbd.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

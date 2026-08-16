@@ -3,6 +3,11 @@ extends Control
 
 const ENTRIES := [
 	{
+		"title": "🎮 玩家正式端 (Game Client) / Title Screen",
+		"blurb": "正式版游戏客户端：全新游戏风大厅、去Emoji矢量图标、倒计时全套真人语音、按键图元操作指南、地图工坊对接与沉浸式 1v1 极限追缉！",
+		"scene": "res://scenes/player_client/title_screen.tscn",
+	},
+	{
 		"title": "动作调试 / Animation Debug",
 		"blurb": "所有角色并排，同步播同一个动作。检查重定向、身高、骨骼绑定。",
 		"scene": "res://scenes/anim_debug.tscn",

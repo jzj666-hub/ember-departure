@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://3kbcanyxblh4"
+path="res://.godot/imported/congratulations.ogg-31d037f2b4ddae46b57b6accd3c5910b.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/voice/Voiceover Pack/Female/congratulations.ogg"
+dest_files=["res://.godot/imported/congratulations.ogg-31d037f2b4ddae46b57b6accd3c5910b.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

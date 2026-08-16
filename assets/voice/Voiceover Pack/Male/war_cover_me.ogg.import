@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://6uocxq6l8xir"
+path="res://.godot/imported/war_cover_me.ogg-c0ef973d500d5512d5893b42120f12c7.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/voice/Voiceover Pack/Male/war_cover_me.ogg"
+dest_files=["res://.godot/imported/war_cover_me.ogg-c0ef973d500d5512d5893b42120f12c7.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

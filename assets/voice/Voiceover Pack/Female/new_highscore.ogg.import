@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://dpycutxe7ixjt"
+path="res://.godot/imported/new_highscore.ogg-cbb4879428fde562993853d7e570b45f.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/voice/Voiceover Pack/Female/new_highscore.ogg"
+dest_files=["res://.godot/imported/new_highscore.ogg-cbb4879428fde562993853d7e570b45f.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4

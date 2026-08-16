@@ -1,0 +1,19 @@
+[remap]
+
+importer="oggvorbisstr"
+type="AudioStreamOggVorbis"
+uid="uid://b00pnugi3ugac"
+path="res://.godot/imported/war_medic.ogg-efc75f37ccb952e7372e5f88f110c4d5.oggvorbisstr"
+
+[deps]
+
+source_file="res://assets/voice/Voiceover Pack/Male/war_medic.ogg"
+dest_files=["res://.godot/imported/war_medic.ogg-efc75f37ccb952e7372e5f88f110c4d5.oggvorbisstr"]
+
+[params]
+
+loop=false
+loop_offset=0
+bpm=0
+beat_count=0
+bar_beats=4
