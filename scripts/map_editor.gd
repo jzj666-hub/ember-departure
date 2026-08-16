@@ -57,6 +57,8 @@ var _path_immediate_mesh: ImmediateMesh
 var _special_paths_mesh_instance: MeshInstance3D
 var _special_paths_mesh: ImmediateMesh
 var _beacon_instance: Node3D
+var _highlighted_special_path_id := ""
+var _targeted_special_path_id := ""
 
 ## Crosshair targeting and ghost previews.
 var _highlight: MeshInstance3D
@@ -503,6 +505,16 @@ func _unhandled_input(event: InputEvent) -> void:
 						_set_mode(EditorMode.RECORD_SPECIAL_PATH)
 					get_viewport().set_input_as_handled()
 					return
+				KEY_DELETE, KEY_X:
+					if _mode == EditorMode.BUILD and _targeted_special_path_id != "":
+						var del_id := _targeted_special_path_id
+						_nav.remove_special_path(del_id)
+						_targeted_special_path_id = ""
+						_redraw_special_paths()
+						_refresh_special_paths_ui()
+						_set_status("已删除准星选中的特殊跳跃路径！")
+						get_viewport().set_input_as_handled()
+						return
 				KEY_ESCAPE:
 					if _save_load_dialog.visible:
 						_save_load_dialog.visible = false
@@ -611,6 +623,24 @@ func _update_targeting() -> void:
 	if ghost_mat != null:
 		ghost_mat.albedo_color = Color(0.2, 0.9, 0.4, 0.4) if can_place else Color(1.0, 0.2, 0.2, 0.4)
 	_ghost.visible = true
+
+	# Check if aiming near any special path
+	var prev_targeted := _targeted_special_path_id
+	_targeted_special_path_id = ""
+	var paths := _nav.get_special_paths()
+	for idx in range(paths.size()):
+		var p: Dictionary = paths[idx]
+		var sp_id: String = str(p.get("id", ""))
+		var t_pos: Vector3 = NavGrid._parse_vec3(p.get("takeoff_pos"))
+		var l_pos: Vector3 = NavGrid._parse_vec3(p.get("landing_pos"))
+		var s_pos: Vector3 = NavGrid._parse_vec3(p.get("start_pos"))
+		if _aim_point.distance_to(t_pos) < 1.6 or _aim_point.distance_to(l_pos) < 1.6 or (s_pos != Vector3.ZERO and _aim_point.distance_to(s_pos) < 1.6):
+			_targeted_special_path_id = sp_id
+			_set_status("【已瞄准特殊跳跃 #%d】按 Delete / X 键快速删除，或按住 Alt 点击右侧列表" % [idx + 1])
+			break
+
+	if prev_targeted != _targeted_special_path_id:
+		_redraw_special_paths()
 
 
 # --- Block Management -------------------------------------------------------
@@ -749,25 +779,35 @@ func _redraw_special_paths() -> void:
 
 	_special_paths_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 	for p in paths:
-		var traj: Array = p.get("trajectory", [])
+		var p_dict: Dictionary = p
+		var p_id: String = str(p_dict.get("id", ""))
+		var is_hl := (p_id == _highlighted_special_path_id or p_id == _targeted_special_path_id)
+		var traj: Array = p_dict.get("trajectory", [])
+		var base_col := Color(1.0, 0.9, 0.1, 1.0) if is_hl else Color(1.0, 0.25, 0.85, 0.9)
+
 		if traj.size() >= 2:
 			for i in range(1, traj.size()):
 				var p1: Array = traj[i - 1]["p"]
 				var p2: Array = traj[i]["p"]
-				var col := Color(1.0, 0.2, 0.8, 0.9)
+				var phase: String = str(traj[i].get("phase", "airborne"))
+				var col := base_col
+				if not is_hl:
+					if phase == "runup" or phase == "rest":
+						col = Color(0.3, 0.9, 1.0, 0.85)
+					else:
+						col = Color(1.0, 0.25, 0.85, 0.9)
 				_special_paths_mesh.surface_set_color(col)
 				_special_paths_mesh.surface_add_vertex(Vector3(p1[0], p1[1], p1[2]))
 				_special_paths_mesh.surface_set_color(col)
 				_special_paths_mesh.surface_add_vertex(Vector3(p2[0], p2[1], p2[2]))
 		else:
-			var from_c: Vector3i = NavGrid._parse_coord(p.get("from"))
-			var to_c: Vector3i = NavGrid._parse_coord(p.get("to"))
+			var from_c: Vector3i = NavGrid._parse_coord(p_dict.get("from"))
+			var to_c: Vector3i = NavGrid._parse_coord(p_dict.get("to"))
 			var f1 := NavGrid.foot(from_c) + Vector3(0, 0.2, 0)
 			var f2 := NavGrid.foot(to_c) + Vector3(0, 0.2, 0)
-			var col := Color(0.9, 0.3, 1.0, 0.85)
-			_special_paths_mesh.surface_set_color(col)
+			_special_paths_mesh.surface_set_color(base_col)
 			_special_paths_mesh.surface_add_vertex(f1)
-			_special_paths_mesh.surface_set_color(col)
+			_special_paths_mesh.surface_set_color(base_col)
 			_special_paths_mesh.surface_add_vertex(f2)
 	_special_paths_mesh.surface_end()
 
@@ -1193,44 +1233,66 @@ func _refresh_special_paths_ui() -> void:
 		var to_arr: Array = p_dict.get("to", [0,0,0])
 		var span_len: float = float(p_dict.get("span_distance", 0.0))
 		var runup_dist: float = float(p_dict.get("runup_distance", 0.0))
-		var max_dev: float = float(p_dict.get("max_deviation", 0.0))
 
 		var card := PanelContainer.new()
 		var card_style := StyleBoxFlat.new()
-		card_style.bg_color = Color(0.16, 0.18, 0.22, 0.95)
-		card_style.border_color = Color(0.3, 0.35, 0.45, 0.8)
+		card_style.bg_color = Color(0.14, 0.17, 0.22, 0.95)
+		card_style.border_color = Color(0.3, 0.4, 0.55, 0.85)
 		card_style.set_border_width_all(1)
+		card_style.set_corner_radius_all(4)
 		card_style.set_content_margin_all(8)
 		card.add_theme_stylebox_override("panel", card_style)
 
+		# Hovering card glows 3D path line in golden yellow
+		card.mouse_entered.connect(func() -> void:
+			_highlighted_special_path_id = path_id
+			_redraw_special_paths()
+		)
+		card.mouse_exited.connect(func() -> void:
+			_highlighted_special_path_id = ""
+			_redraw_special_paths()
+		)
+
 		var card_vbox := VBoxContainer.new()
-		card_vbox.add_theme_constant_override("separation", 4)
+		card_vbox.add_theme_constant_override("separation", 5)
 		card.add_child(card_vbox)
 
-		var lbl := Label.new()
-		lbl.text = "路径 #%d: (%d,%d,%d) -> (%d,%d,%d)" % [
-			idx + 1,
-			from_arr[0], from_arr[1], from_arr[2],
-			to_arr[0], to_arr[1], to_arr[2]
-		]
-		lbl.add_theme_font_size_override("font_size", 11)
-		lbl.modulate = Color(0.8, 0.95, 1.0)
-		card_vbox.add_child(lbl)
+		var title_lbl := Label.new()
+		title_lbl.text = "【特殊跳跃 #%d】" % [idx + 1]
+		title_lbl.add_theme_font_size_override("font_size", 12)
+		title_lbl.modulate = Color(1.0, 0.85, 0.3)
+		card_vbox.add_child(title_lbl)
+
+		var info_vbox := VBoxContainer.new()
+		info_vbox.add_theme_constant_override("separation", 2)
+		card_vbox.add_child(info_vbox)
+
+		var from_lbl := Label.new()
+		from_lbl.text = "• 起跳格: (X:%d, Y:%d, Z:%d)" % [from_arr[0], from_arr[1], from_arr[2]]
+		from_lbl.add_theme_font_size_override("font_size", 11)
+		from_lbl.modulate = Color(0.7, 0.9, 1.0)
+		info_vbox.add_child(from_lbl)
+
+		var to_lbl := Label.new()
+		to_lbl.text = "• 着陆格: (X:%d, Y:%d, Z:%d)" % [to_arr[0], to_arr[1], to_arr[2]]
+		to_lbl.add_theme_font_size_override("font_size", 11)
+		to_lbl.modulate = Color(0.6, 1.0, 0.75)
+		info_vbox.add_child(to_lbl)
 
 		var detail_lbl := Label.new()
-		detail_lbl.text = "跨度: %.1fm | 助跑: %.1fm | 偏离: %.3fm" % [span_len, runup_dist, max_dev]
+		detail_lbl.text = "• 跳跃跨度: %.1f米 (助跑 %.1f米)" % [span_len, runup_dist]
 		detail_lbl.add_theme_font_size_override("font_size", 10)
-		detail_lbl.modulate = Color(1.0, 1.0, 1.0, 0.6)
-		card_vbox.add_child(detail_lbl)
+		detail_lbl.modulate = Color(1.0, 1.0, 1.0, 0.65)
+		info_vbox.add_child(detail_lbl)
 
 		var btns := HBoxContainer.new()
 		btns.add_theme_constant_override("separation", 4)
 		card_vbox.add_child(btns)
 
 		var test_btn := Button.new()
-		test_btn.text = "NPC测试"
+		test_btn.text = "NPC试跳"
 		test_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		test_btn.add_theme_font_size_override("font_size", 10)
+		test_btn.add_theme_font_size_override("font_size", 11)
 		test_btn.pressed.connect(func() -> void:
 			var start_arr: Array = p_dict.get("start_pos", [])
 			if start_arr.size() >= 3:
@@ -1238,29 +1300,29 @@ func _refresh_special_paths_ui() -> void:
 				_npc.velocity = Vector3.ZERO
 			var target_pos := NavGrid.foot(Vector3i(to_arr[0], to_arr[1], to_arr[2]))
 			_recalculate_npc_path(target_pos)
-			_set_status("已将 NPC 放置于录制起点并启动测试！")
+			_set_status("已将 NPC 放置于录制起点并启动试跳！")
 		)
 		btns.add_child(test_btn)
 
 		var focus_btn := Button.new()
-		focus_btn.text = "定位"
-		focus_btn.add_theme_font_size_override("font_size", 10)
+		focus_btn.text = "视角聚焦"
+		focus_btn.add_theme_font_size_override("font_size", 11)
 		focus_btn.pressed.connect(func() -> void:
 			_focus_special_path(p_dict)
 		)
 		btns.add_child(focus_btn)
 
 		var del_btn := Button.new()
-		del_btn.text = "删除"
-		del_btn.modulate = Color(1.0, 0.45, 0.45)
-		del_btn.add_theme_font_size_override("font_size", 10)
+		del_btn.text = "🗑 删除此路径"
+		del_btn.modulate = Color(1.0, 0.35, 0.35)
+		del_btn.add_theme_font_size_override("font_size", 11)
 		del_btn.pressed.connect(func() -> void:
 			_nav.remove_special_path(path_id)
 			_redraw_special_paths()
 			_refresh_special_paths_ui()
-			_set_status("已删除特殊路径 #%d [%s]" % [idx + 1, path_id])
+			_set_status("已删除【特殊跳跃 #%d】" % [idx + 1])
 		)
-		btns.add_child(del_btn)
+		card_vbox.add_child(del_btn)
 
 		_special_path_list_box.add_child(card)
 
