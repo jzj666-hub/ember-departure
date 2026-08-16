@@ -63,6 +63,13 @@ func _test_audio_manager() -> void:
 	_ok("BGM Player is attached", AudioManagerScript._bgm_player.get_parent() != null)
 	AudioManagerScript.stop_bgm()
 
+	# Test Footstep audio generator
+	var step_sample: AudioStreamWAV = AudioManagerScript.create_footstep_sample(1.0)
+	_ok("Footstep sample created", step_sample != null and step_sample.data.size() > 0)
+	AudioManagerScript.play_footstep(-12.0)
+	AudioManagerScript.play_land_sound(-6.0)
+	_ok("Footstep playback successful", true)
+
 	dummy.queue_free()
 
 

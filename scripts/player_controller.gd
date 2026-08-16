@@ -4,6 +4,10 @@ extends CharacterBody3D
 ## Drives a runtime AnimationTree.
 
 const PlayerIntentSourceScript = preload("res://scripts/player_intent_source.gd")
+const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+
+@export var footstep_enabled := true
+var _footstep_distance := 0.0
 
 const CLIP_IDLE := "idle"
 const CLIP_WALK := "walk"
@@ -1073,6 +1077,7 @@ func _physics_process(delta: float) -> void:
 	# once the body has tried to move onto it, walking into a wall should stop the
 	# legs too, and the effect wants where the body actually got to.
 	_settle_ground(delta)
+	_update_footsteps(delta)
 	# Past the end of the lunge too: the fade has to come back up afterwards.
 	if _dash_trailing or _fade_alpha < 1.0:
 		_drive_dash_vfx(delta)
@@ -1205,6 +1210,37 @@ func _wish_direction() -> Vector3:
 	return (frame.z * _intent.move.y - frame.x * _intent.move.x).normalized()
 
 
+func _update_footsteps(delta: float) -> void:
+	if not footstep_enabled or not is_on_floor():
+		_footstep_distance = 0.0
+		return
+
+	if state != State.WALK and state != State.RUN and state != State.CROUCH and state != State.BRAKING:
+		return
+
+	var h_vel := Vector2(velocity.x, velocity.z)
+	var speed_val := h_vel.length()
+	if speed_val < 0.2:
+		return
+
+	var step_interval := 1.45
+	var step_vol := -14.0
+	if state == State.RUN:
+		step_interval = 2.1
+		step_vol = -10.0
+	elif state == State.CROUCH:
+		step_interval = 0.95
+		step_vol = -18.0
+	elif state == State.BRAKING:
+		step_interval = 1.1
+		step_vol = -12.0
+
+	_footstep_distance += speed_val * delta
+	if _footstep_distance >= step_interval:
+		_footstep_distance = fmod(_footstep_distance, step_interval)
+		AudioManagerScript.play_footstep(step_vol)
+
+
 ## Puts `ground_speed` on the velocity along the character's own facing, leaving
 ## the vertical alone. What the scripted slides - the roll, and the landing that
 ## rolls out of one - move with: they are committed to a direction chosen when
@@ -1333,6 +1369,8 @@ func _begin_jump() -> void:
 	_air_speed = speed()
 	_landing_take = ""
 	_play_action("jump_start", jump_start_rate)
+	if footstep_enabled:
+		AudioManagerScript.play_footstep(-8.0)
 
 
 ## Walking off something, which needs no request and gets a different take from
@@ -1485,6 +1523,8 @@ func _land() -> void:
 	_action_slides = false
 	var take := _landing_take
 	var recover := _landing_recover
+	if footstep_enabled:
+		AudioManagerScript.play_land_sound(-6.0)
 
 	if jumped and take == "":
 		take = "jump_land"
