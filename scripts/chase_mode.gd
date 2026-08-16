@@ -215,8 +215,16 @@ func _start_escape_countdown() -> void:
 	_repath_timer = 0.0
 
 	_player.global_position = _player_spawn
+	_player.velocity = Vector3.ZERO
 	_npc.global_position = _npc_spawn
+	_npc.velocity = Vector3.ZERO
 	_npc_intent.clear_target()
+
+	_camera.target = _player
+	if _player_visual != null:
+		var height: float = _player_visual.get("body_height")
+		_camera.frame_for(height if height > 0.1 else 1.75)
+	_camera.snap()
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_map_select_dialog.visible = false
@@ -402,10 +410,16 @@ func _spawn_character_visual(body: CharacterBody3D, char_idx: int, is_player: bo
 	collider.position.y = height * 0.5
 	body.add_child(collider)
 
+	body.setup(visual, _camera)
+
 	if is_player:
 		_player_visual = visual
+		_camera.target = _player
+		_camera.frame_for(height)
+		_camera.snap()
 	else:
 		_npc_visual = visual
+		_nav.set_capability(_npc)
 
 
 func _draw_npc_path(points: PackedVector3Array) -> void:
@@ -465,6 +479,30 @@ func _load_map_data(path: String) -> void:
 	for p_dict in sp_paths:
 		if p_dict is Dictionary:
 			_nav.add_special_path(p_dict)
+
+	_nav.rebuild()
+	if _npc != null:
+		_nav.set_capability(_npc)
+
+	var p_stand := _nav.standing_node(_player_spawn)
+	if p_stand != NavGridScript.NO_CELL:
+		_player_spawn = NavGridScript.foot(p_stand) + Vector3(0.0, 0.05, 0.0)
+
+	var best_npc_cell := NavGridScript.NO_CELL
+	var best_dist := -1.0
+	for col_key in _nav._columns:
+		var col: Vector2i = col_key
+		var levels: PackedInt32Array = _nav._columns[col]
+		for lvl in levels:
+			var c := Vector3i(col.x, lvl, col.y)
+			var d: float = Vector2(float(c.x - p_stand.x), float(c.z - p_stand.z)).length()
+			if d >= 6.0 and (best_dist < 0.0 or absf(d - 10.0) < absf(best_dist - 10.0)):
+				best_dist = d
+				best_npc_cell = c
+	if best_npc_cell != NavGridScript.NO_CELL:
+		_npc_spawn = NavGridScript.foot(best_npc_cell) + Vector3(0.0, 0.05, 0.0)
+	else:
+		_npc_spawn = _player_spawn + Vector3(0.0, 0.05, -8.0)
 
 
 func _clear_all_blocks() -> void:
