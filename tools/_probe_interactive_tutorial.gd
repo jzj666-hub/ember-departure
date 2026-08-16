@@ -122,7 +122,18 @@ func _test_interactive_tutorial_flow() -> void:
 
 	# --- Step 5 -> Step 6: Recalculate Path with AI Replay Verification ---
 	editor.call("_recalculate_npc_path", Vector3(1, 1.2, 5))
-	_ok("Testing AI special jump execution advances to Step 6 (Complete)", editor.get("_tutorial_step") == 6)
+	_ok("Recalculating path in Step 5 keeps player observing leap", editor.get("_tutorial_step") == 5)
+
+	# Simulate NPC arrival on Platform 2
+	await editor.call("_on_npc_arrived_destination", Vector3(1, 1.2, 5))
+	_ok("NPC jump arrival and 2s stay advances to Step 6 (Delete Path Task)", editor.get("_tutorial_step") == 6)
+
+	# --- Step 6 -> Step 7: Delete the Special Path ---
+	# Simulate double tap X deletion
+	editor.set("_hovered_special_path_id", "sp_tut_01")
+	editor.call("_handle_x_double_tap") # first tap
+	editor.call("_handle_x_double_tap") # second tap within window
+	_ok("Deleting special path advances to Step 7 (Complete & Reveal)", editor.get("_tutorial_step") == 7)
 
 	var comp_dialog: PanelContainer = editor.get("_interactive_complete_dialog")
 	_ok("Celebration complete dialog is visible", comp_dialog != null and comp_dialog.visible)

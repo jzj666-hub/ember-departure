@@ -750,6 +750,8 @@ func _handle_x_double_tap() -> void:
 		_redraw_special_paths()
 		_refresh_special_paths_ui()
 		_set_status("已成功删除特殊路径：%s" % del_id)
+		if _interactive_tutorial_active and _tutorial_step == 6:
+			_advance_interactive_tutorial(7)
 	else:
 		_last_x_press_time = now
 		_last_x_target_id = _hovered_special_path_id
@@ -1017,10 +1019,12 @@ func _recalculate_npc_path(target: Vector3) -> void:
 	if _interactive_tutorial_active:
 		if _tutorial_step == 2:
 			if _interactive_banner != null:
-				_interactive_banner_title.text = "🎯 新手任务 (3/6): 正在寻路..."
+				_interactive_banner_title.text = "🎯 新手任务 (3/8): 正在寻路..."
 				_interactive_banner_sub.text = "👀 人机已启动动力学规划寻路，请静静观察其移动路线与落点！"
 		elif _tutorial_step == 5:
-			_advance_interactive_tutorial(6)
+			if _interactive_banner != null:
+				_interactive_banner_title.text = "🎯 新手任务 (6/8): 见证飞跃..."
+				_interactive_banner_sub.text = "👀 观察 NPC 正在起跑并复刻你的动力学航迹飞跃断台！"
 
 
 func _on_repath_requested(from_pos: Vector3, target: Vector3) -> void:
@@ -1595,7 +1599,7 @@ func _build_interactive_complete_dialog() -> void:
 	vbox.add_child(title)
 
 	var desc := Label.new()
-	desc.text = "您已成功掌握方块搭建、物理寻路测试、极限跳跃录制与 AI 智能复现！\n\n💡 核心秘籍：随时按【B 键】可在【属性面板（鼠标指针工作）】与【沉浸自由视角】之间一键切换！"
+	desc.text = "您已成功掌握方块搭建、物理寻路测试、极限跳跃示范录制与轨迹管理！\n\n💡 进阶揭秘：其实人机本身是可以从断点跳过去的，甚至有更强的高阶跳跃处理机制，请敬请期待这些 NPC 战士的惊艳表现吧！\n\n随时按【B 键】可在【属性面板（鼠标指针）】与【沉浸自由视角】之间一键切换；快去打造您的专属对决战场吧！"
 	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	if _custom_font != null:
@@ -1633,11 +1637,19 @@ func _on_npc_arrived_destination(_target: Vector3) -> void:
 	if _tutorial_step == 2:
 		if _interactive_banner != null:
 			_interactive_banner_icon.modulate = Color(0.3, 0.9, 0.6)
-			_interactive_banner_title.text = "🎯 新手任务 (3/6): 寻路抵达！"
+			_interactive_banner_title.text = "🎯 新手任务 (3/8): 寻路抵达！"
 			_interactive_banner_sub.text = "✅ 人机已按物理规划成功抵达目标点！停留 2 秒即将进入下一阶段..."
 		await get_tree().create_timer(2.0).timeout
 		if _interactive_tutorial_active and _tutorial_step == 2:
 			_advance_interactive_tutorial(3)
+	elif _tutorial_step == 5:
+		if _interactive_banner != null:
+			_interactive_banner_icon.modulate = Color(0.3, 0.9, 0.6)
+			_interactive_banner_title.text = "🎯 新手任务 (6/8): 飞跃完成！"
+			_interactive_banner_sub.text = "✅ 人机已完美复刻跳跃并成功着陆！停留 2 秒进入下一阶段..."
+		await get_tree().create_timer(2.0).timeout
+		if _interactive_tutorial_active and _tutorial_step == 5:
+			_advance_interactive_tutorial(6)
 
 
 func _advance_interactive_tutorial(step: int) -> void:
@@ -1651,58 +1663,67 @@ func _advance_interactive_tutorial(step: int) -> void:
 			if ResourceLoader.exists("res://assets/UI_assets/cubes.svg"):
 				_interactive_banner_icon.texture = load("res://assets/UI_assets/cubes.svg")
 				_interactive_banner_icon.modulate = Color(0.3, 0.85, 1.0)
-			_interactive_banner_title.text = "🎯 新手任务 (1/6): 放置方块"
+			_interactive_banner_title.text = "🎯 新手任务 (1/8): 放置方块"
 			_interactive_banner_sub.text = "准星对准地面任意网格，点击【鼠标左键 (LMB)】放置一个方块。"
 			_interactive_banner_style.border_color = Color(0.3, 0.85, 1.0)
-			_set_status("【任务 1/6】点击鼠标左键放置方块")
+			_set_status("【任务 1/8】点击鼠标左键放置方块")
 
 		1:
 			if ResourceLoader.exists("res://assets/UI_assets/cross-mark.svg"):
 				_interactive_banner_icon.texture = load("res://assets/UI_assets/cross-mark.svg")
 				_interactive_banner_icon.modulate = Color(1.0, 0.4, 0.4)
-			_interactive_banner_title.text = "🎯 新手任务 (2/6): 拆除方块"
-			_interactive_banner_sub.text = "太棒了！现在准星对准刚才放置的方块，点击【鼠标右键 (RMB)】将其拆除。"
+			_interactive_banner_title.text = "🎯 新手任务 (2/8): 拆除方块"
+			_interactive_banner_sub.text = "太棒了！现在准星对准带有金箭头的方块，点击【鼠标右键 (RMB)】将其拆除。"
 			_interactive_banner_style.border_color = Color(1.0, 0.4, 0.4)
-			_set_status("【任务 2/6】准星对准方块点击鼠标右键拆除")
+			_set_status("【任务 2/8】准星对准方块点击鼠标右键拆除")
 
 		2:
 			if ResourceLoader.exists("res://assets/UI_assets/run.svg"):
 				_interactive_banner_icon.texture = load("res://assets/UI_assets/run.svg")
 				_interactive_banner_icon.modulate = Color(0.3, 0.9, 0.6)
-			_interactive_banner_title.text = "🎯 新手任务 (3/6): 人机智能寻路"
+			_interactive_banner_title.text = "🎯 新手任务 (3/8): 人机智能寻路"
 			_interactive_banner_sub.text = "人机拥有强大的物理能力寻路！按住【Shift + 鼠标左键】点击地面较远处，指挥 NPC 走过去。"
 			_interactive_banner_style.border_color = Color(0.3, 0.9, 0.6)
-			_set_status("【任务 3/6】按住 Shift 点击左键测试 NPC 寻路")
+			_set_status("【任务 3/8】按住 Shift 点击左键测试 NPC 寻路")
 
 		3:
 			_spawn_tutorial_glowing_platforms()
 			if ResourceLoader.exists("res://assets/UI_assets/cctv-camera.svg"):
 				_interactive_banner_icon.texture = load("res://assets/UI_assets/cctv-camera.svg")
 				_interactive_banner_icon.modulate = Color(1.0, 0.85, 0.25)
-			_interactive_banner_title.text = "🎯 新手任务 (4/6): 切换自身操控"
+			_interactive_banner_title.text = "🎯 新手任务 (4/8): 切换自身操控"
 			_interactive_banner_sub.text = "场景中央已生成两座测试跳台！按【TAB 键】切换为自己操控角色，并站到起点方块上方。"
 			_interactive_banner_style.border_color = Color(1.0, 0.85, 0.25)
-			_set_status("【任务 4/6】按 TAB 键切换为自身操控")
+			_set_status("【任务 4/8】按 TAB 键切换为自身操控")
 
 		4:
 			if ResourceLoader.exists("res://assets/UI_assets/digital-trace.svg"):
 				_interactive_banner_icon.texture = load("res://assets/UI_assets/digital-trace.svg")
 				_interactive_banner_icon.modulate = Color(0.2, 0.85, 1.0)
-			_interactive_banner_title.text = "🎯 新手任务 (5/6): 录制极限跳跃轨迹"
+			_interactive_banner_title.text = "🎯 新手任务 (5/8): 录制极限跳跃轨迹"
 			_interactive_banner_sub.text = "人机原本无法判断断台可达。按【R 键】就绪，然后助跑跳到对面跳台！系统将自动捕获你的跳跃轨迹，作为人机新的可行路径！"
 			_interactive_banner_style.border_color = Color(0.2, 0.85, 1.0)
-			_set_status("【任务 5/6】按 R 键就绪，全力助跑起跳跨越断台，让人机学习新路径")
+			_set_status("【任务 5/8】按 R 键就绪，全力助跑起跳跨越断台，让人机学习新路径")
 
 		5:
 			if ResourceLoader.exists("res://assets/UI_assets/claw-slashes.svg"):
 				_interactive_banner_icon.texture = load("res://assets/UI_assets/claw-slashes.svg")
 				_interactive_banner_icon.modulate = Color(1.0, 0.88, 0.3)
-			_interactive_banner_title.text = "🎯 新手任务 (6/6): 见证 AI 学习并复现跳跃"
+			_interactive_banner_title.text = "🎯 新手任务 (6/8): 见证 AI 学习并复现跳跃"
 			_interactive_banner_sub.text = "录制成功！角色已重置回起点。按【TAB 键】回到自由建造，按住【Shift + 左键】点击对面跳台，见证 NPC 完美复现你的跳跃！"
 			_interactive_banner_style.border_color = Color(1.0, 0.88, 0.3)
-			_set_status("【任务 6/6】角色已回起点，按 TAB 建造模式并 Shift+左键 命令 NPC 跨越跳跃")
+			_set_status("【任务 6/8】角色已回起点，按 TAB 建造模式并 Shift+左键 命令 NPC 跨越跳跃")
 
 		6:
+			if ResourceLoader.exists("res://assets/UI_assets/cross-mark.svg"):
+				_interactive_banner_icon.texture = load("res://assets/UI_assets/cross-mark.svg")
+				_interactive_banner_icon.modulate = Color(1.0, 0.45, 0.3)
+			_interactive_banner_title.text = "🎯 新手任务 (7/8): 精准删除特殊跳跃轨迹"
+			_interactive_banner_sub.text = "学会录制也要学会清理！将准星对准空中刚才录制的绿色轨迹线条，【连续按两下 X 键】将其精准删除。"
+			_interactive_banner_style.border_color = Color(1.0, 0.45, 0.3)
+			_set_status("【任务 7/8】准星对准绿色轨迹线条，连续按两次 X 键精准删除")
+
+		7:
 			_interactive_banner.visible = false
 			_interactive_complete_dialog.visible = true
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -2315,6 +2336,8 @@ func _refresh_special_paths_ui() -> void:
 			_redraw_special_paths()
 			_refresh_special_paths_ui()
 			_set_status("已删除特殊路径 %s" % path_id)
+			if _interactive_tutorial_active and _tutorial_step == 6:
+				_advance_interactive_tutorial(7)
 		)
 		btns.add_child(del_btn)
 
