@@ -27,6 +27,11 @@ const ENTRIES := [
 		"blurb": "支持多尺寸方块搭建与材质切换、地图新建/存档/加载，支持玩家录制空中直线特殊跳跃轨迹并与NPC寻路无缝集成。",
 		"scene": "res://scenes/map_editor.tscn",
 	},
+	{
+		"title": "追缉 / 1v1 Pursuit Mode",
+		"blurb": "1v1 追缉逃生挑战：选择自定义或保存的地图，开局 15 秒逃生时间。追缉者全速追踪，同平台高频刷新，攀爬跳跃落地触发，离追缉者一格以内判定追缉成功！",
+		"scene": "res://scenes/chase_mode.tscn",
+	},
 ]
 
 

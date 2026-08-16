@@ -387,6 +387,19 @@ func is_sequence_running() -> bool:
 	return _is_sequence_running
 
 
+## Check if NPC is currently engaged in an airborne jump, climb, flight, or special replay.
+func is_performing_jump_or_climb() -> bool:
+	if _is_climbing or _was_climbing:
+		return true
+	if _jump_phase != JumpPhase.NONE:
+		return true
+	if _replay_phase != ReplayPhase.NONE:
+		return true
+	if _jump_tracking or _coyote_pending:
+		return true
+	return false
+
+
 ## Get human readable status of task sequence.
 func get_sequence_status() -> String:
 	return _sequence_status

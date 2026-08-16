@@ -750,6 +750,49 @@ func standing_node(pos: Vector3) -> Vector3i:
 	return Vector3i(int(floor(p.x)), int(round(p.y)), int(floor(p.z)))
 
 
+## Returns true if cell_a and cell_b are on the same level platform connected
+## strictly by continuous flat walkable steps (Move.WALK, dh == 0, adjacent),
+## without requiring any jumping, dropping, climbing, or gap crosses.
+func is_same_flat_platform(cell_a: Vector3i, cell_b: Vector3i) -> bool:
+	if cell_a == NO_CELL or cell_b == NO_CELL:
+		return false
+	if cell_a == cell_b:
+		return true
+	if cell_a.y != cell_b.y:
+		return false
+
+	rebuild()
+	if not _nodes.has(cell_a) or not _nodes.has(cell_b):
+		return false
+
+	var target_y := cell_a.y
+	var visited: Dictionary = {}
+	var queue: Array[Vector3i] = [cell_a]
+	visited[cell_a] = true
+
+	while not queue.is_empty():
+		var curr: Vector3i = queue.pop_front()
+		if curr == cell_b:
+			return true
+
+		for d in DIR_ORTHO:
+			var nxt := Vector3i(curr.x + d.x, target_y, curr.z + d.y)
+			if not visited.has(nxt) and _nodes.has(nxt):
+				visited[nxt] = true
+				queue.push_back(nxt)
+
+		for d in DIR_DIAG:
+			var nxt := Vector3i(curr.x + d.x, target_y, curr.z + d.y)
+			if not visited.has(nxt) and _nodes.has(nxt):
+				var c1 := Vector3i(curr.x + d.x, target_y, curr.z)
+				var c2 := Vector3i(curr.x, target_y, curr.z + d.y)
+				if _nodes.has(c1) and _nodes.has(c2):
+					visited[nxt] = true
+					queue.push_back(nxt)
+
+	return false
+
+
 # --- search -----------------------------------------------------------------
 
 ## Path from `from_pos` to `to_pos`.
