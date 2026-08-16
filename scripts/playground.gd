@@ -1,13 +1,13 @@
 extends Node3D
-## Third-person test playground scene. Spawns test geometry (stair, pads, pillars) and character body.
-## Controls: WASD to move, Shift to run, Ctrl to crouch, Space to jump/climb, Double Shift to roll, Tab to swap character, Esc to exit.
 
 const CharacterPipelineScript = preload("res://tools/character_pipeline.gd")
 const PlayerControllerScript = preload("res://scripts/player_controller.gd")
 const PlayerIntentSourceScript = preload("res://scripts/player_intent_source.gd")
 const FollowCameraScript = preload("res://scripts/follow_camera.gd")
+const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 
 const MENU_SCENE := "res://scenes/main_menu.tscn"
+const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 
 ## Half-width of the floor, in metres.
 const GROUND_HALF := 40.0
@@ -16,17 +16,44 @@ const SPAWN := Vector3(0.0, 0.2, -6.0)
 ## Height difference in meters between stair treads.
 const CLIMB_STEP := 1.4
 
+static var start_with_tutorial: bool = false
+static var return_scene: String = "res://scenes/main_menu.tscn"
+
 var _characters: Array = []
 var _index := 0
 var _player: CharacterBody3D
 var _camera: Camera3D
 var _visual: Node3D
+var _custom_font: Font = null
 
 var _state_label: Label
 var _hint_label: Label
 
+# Tutorial State
+var _tutorial_active := false
+var _tutorial_step := 0
+var _tutorial_accum_dist := 0.0
+var _tutorial_accum_run := 0.0
+var _camera_toggled_during_step := false
+var _hud_layer: CanvasLayer
+
+var _tutorial_banner: PanelContainer
+var _tutorial_banner_style: StyleBoxFlat
+var _tutorial_step_label: Label
+var _tutorial_title_label: Label
+var _tutorial_sub_label: Label
+var _tutorial_keys_container: HBoxContainer
+var _tutorial_complete_dialog: PanelContainer
+var _tutorial_climb_prop: StaticBody3D
+var _tutorial_arrow: Node3D
+
 
 func _ready() -> void:
+	if ResourceLoader.exists(FONT_PATH):
+		_custom_font = load(FONT_PATH) as Font
+
+	AudioManagerScript.init_pool(self)
+
 	_characters = CharacterPipelineScript.list_characters().filter(
 		func(c: Dictionary) -> bool: return ResourceLoader.exists(c.scene))
 	if _characters.is_empty():
@@ -38,6 +65,9 @@ func _ready() -> void:
 	_build_props()
 	_build_player()
 	_build_hud()
+
+	if start_with_tutorial:
+		_start_interactive_tutorial()
 
 
 # --- world ----------------------------------------------------------------
@@ -264,7 +294,11 @@ func _build_player() -> void:
 	_camera.fov = 55.0
 	_camera.near = 0.05
 	_camera.current = true
-	_camera.connect("mode_changed", func(_fp: bool) -> void: _refresh_hint())
+	_camera.connect("mode_changed", func(_fp: bool) -> void:
+		_refresh_hint()
+		if _tutorial_active and _tutorial_step == 5:
+			_camera_toggled_during_step = true
+	)
 	add_child(_camera)
 
 	_spawn_character()
@@ -285,8 +319,6 @@ func _spawn_character() -> void:
 	_visual = scene.instantiate() as Node3D
 	_player.add_child(_visual)
 
-	# add_child() has run the character's _ready(), so its height and its
-	# AnimationPlayer are both resolved by now.
 	var height: float = _visual.get("body_height")
 	if height <= 0.1:
 		height = 1.75
@@ -307,19 +339,19 @@ func _spawn_character() -> void:
 	_refresh_hint()
 
 
-# --- hud ------------------------------------------------------------------
+# --- hud & tutorial --------------------------------------------------------
 
 func _build_hud() -> void:
-	var layer := CanvasLayer.new()
-	layer.name = "HUD"
-	add_child(layer)
+	_hud_layer = CanvasLayer.new()
+	_hud_layer.name = "HUD"
+	add_child(_hud_layer)
 
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	panel.position = Vector2(12, 12)
 	panel.custom_minimum_size = Vector2(300, 0)
 	panel.modulate = Color(1, 1, 1, 0.9)
-	layer.add_child(panel)
+	_hud_layer.add_child(panel)
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
@@ -350,7 +382,312 @@ func _refresh_hint() -> void:
 			entry.id, _index + 1, _characters.size()]
 
 
-func _process(_delta: float) -> void:
+func _start_interactive_tutorial() -> void:
+	_tutorial_active = true
+	_tutorial_step = 0
+	_build_tutorial_arrow()
+	_setup_tutorial_world()
+	_build_tutorial_banner()
+	_build_tutorial_complete_dialog()
+	_set_tutorial_step(0)
+
+
+func _build_tutorial_arrow() -> void:
+	_tutorial_arrow = Node3D.new()
+	_tutorial_arrow.name = "TutorialArrow"
+	_tutorial_arrow.visible = false
+
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.85, 0.25)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.85, 0.25)
+	mat.emission_energy_multiplier = 2.0
+
+	var cone_mesh := CylinderMesh.new()
+	cone_mesh.top_radius = 0.0
+	cone_mesh.bottom_radius = 0.35
+	cone_mesh.height = 0.6
+	cone_mesh.material = mat
+
+	var cone_inst := MeshInstance3D.new()
+	cone_inst.mesh = cone_mesh
+	cone_inst.rotation.x = PI
+	cone_inst.position.y = 0.3
+	_tutorial_arrow.add_child(cone_inst)
+
+	var shaft_mesh := CylinderMesh.new()
+	shaft_mesh.top_radius = 0.12
+	shaft_mesh.bottom_radius = 0.12
+	shaft_mesh.height = 0.5
+	shaft_mesh.material = mat
+
+	var shaft_inst := MeshInstance3D.new()
+	shaft_inst.mesh = shaft_mesh
+	shaft_inst.position.y = 0.75
+	_tutorial_arrow.add_child(shaft_inst)
+
+	add_child(_tutorial_arrow)
+
+
+func _setup_tutorial_world() -> void:
+	if _tutorial_climb_prop != null:
+		return
+	_tutorial_climb_prop = _make_box(Vector3(4.0, 2.0, 3.0), Color(0.22, 0.35, 0.50))
+	_tutorial_climb_prop.position = Vector3(0.0, 0.0, -1.5)
+	_tutorial_climb_prop.name = "TutorialClimbPlatform"
+	add_child(_tutorial_climb_prop)
+
+	var edge_mesh := ImmediateMesh.new()
+	edge_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	edge_mesh.surface_set_color(Color(1.0, 0.85, 0.25))
+	edge_mesh.surface_add_vertex(Vector3(-2.0, 2.02, -1.5))
+	edge_mesh.surface_add_vertex(Vector3(2.0, 2.02, -1.5))
+	edge_mesh.surface_end()
+
+	var edge_mat := StandardMaterial3D.new()
+	edge_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	edge_mat.vertex_color_use_as_albedo = true
+
+	var edge_inst := MeshInstance3D.new()
+	edge_inst.mesh = edge_mesh
+	edge_inst.material_override = edge_mat
+	_tutorial_climb_prop.add_child(edge_inst)
+
+	_tutorial_arrow.position = Vector3(0.0, 2.8, -3.0)
+	_tutorial_arrow.visible = false
+
+
+func _build_tutorial_banner() -> void:
+	_tutorial_banner = PanelContainer.new()
+	_tutorial_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_tutorial_banner.offset_left = -350
+	_tutorial_banner.offset_right = 350
+	_tutorial_banner.offset_top = 40
+	_tutorial_banner.offset_bottom = 145
+	_tutorial_banner.custom_minimum_size = Vector2(700, 105)
+	_tutorial_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	_tutorial_banner_style = StyleBoxFlat.new()
+	_tutorial_banner_style.bg_color = Color(0.08, 0.10, 0.14, 0.96)
+	_tutorial_banner_style.set_corner_radius_all(12)
+	_tutorial_banner_style.set_border_width_all(2)
+	_tutorial_banner_style.border_color = Color(0.3, 0.85, 1.0)
+	_tutorial_banner_style.set_content_margin_all(14)
+	_tutorial_banner.add_theme_stylebox_override("panel", _tutorial_banner_style)
+	_hud_layer.add_child(_tutorial_banner)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 18)
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	_tutorial_banner.add_child(hbox)
+
+	var vbox := VBoxContainer.new()
+	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_theme_constant_override("separation", 4)
+	hbox.add_child(vbox)
+
+	_tutorial_title_label = Label.new()
+	if _custom_font != null:
+		_tutorial_title_label.add_theme_font_override("font", _custom_font)
+	_tutorial_title_label.add_theme_font_size_override("font_size", 20)
+	_tutorial_title_label.modulate = Color(1.0, 0.88, 0.3)
+	vbox.add_child(_tutorial_title_label)
+
+	_tutorial_sub_label = Label.new()
+	_tutorial_sub_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _custom_font != null:
+		_tutorial_sub_label.add_theme_font_override("font", _custom_font)
+	_tutorial_sub_label.add_theme_font_size_override("font_size", 14)
+	_tutorial_sub_label.modulate = Color(0.9, 0.92, 0.96)
+	vbox.add_child(_tutorial_sub_label)
+
+	_tutorial_keys_container = HBoxContainer.new()
+	_tutorial_keys_container.add_theme_constant_override("separation", 6)
+	_tutorial_keys_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_child(_tutorial_keys_container)
+
+
+func _rebuild_tutorial_keys(keys: Array[String]) -> void:
+	for child in _tutorial_keys_container.get_children():
+		_tutorial_keys_container.remove_child(child)
+		child.queue_free()
+	for k in keys:
+		if k == "+" or k == "或" or k == "/":
+			var lbl := Label.new()
+			lbl.text = " %s " % k
+			lbl.add_theme_font_size_override("font_size", 16)
+			lbl.modulate = Color(1.0, 0.85, 0.3)
+			lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			_tutorial_keys_container.add_child(lbl)
+		else:
+			var path := "res://assets/buttons_pattern/%s.png" % k
+			var tex_rect := TextureRect.new()
+			if ResourceLoader.exists(path):
+				tex_rect.texture = load(path)
+			tex_rect.custom_minimum_size = Vector2(38, 38)
+			tex_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tex_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			_tutorial_keys_container.add_child(tex_rect)
+
+
+func _set_tutorial_step(step: int) -> void:
+	_tutorial_step = step
+	_tutorial_accum_dist = 0.0
+	_tutorial_accum_run = 0.0
+	_camera_toggled_during_step = false
+
+	match step:
+		0:
+			_tutorial_banner_style.border_color = Color(0.3, 0.85, 1.0)
+			_tutorial_title_label.text = "🎯 基础身法 (1/6): 前后左右位移"
+			_tutorial_sub_label.text = "使用键盘 【W / A / S / D】 键控制角色在场景中自由行走走动。"
+			_rebuild_tutorial_keys(["W", "A", "S", "D"])
+			if _tutorial_arrow != null:
+				_tutorial_arrow.visible = false
+		1:
+			_tutorial_banner_style.border_color = Color(1.0, 0.75, 0.2)
+			_tutorial_title_label.text = "🎯 基础身法 (2/6): 疾步冲刺奔跑"
+			_tutorial_sub_label.text = "按住 【Shift】 键并按住 【W】 直线向前，角色将进入全力疾跑冲刺状态！"
+			_rebuild_tutorial_keys(["SHIFT", "+", "W"])
+			if _tutorial_arrow != null:
+				_tutorial_arrow.visible = false
+		2:
+			_tutorial_banner_style.border_color = Color(0.35, 0.9, 0.6)
+			_tutorial_title_label.text = "🎯 基础身法 (3/6): 起跳腾空"
+			_tutorial_sub_label.text = "按下 【空格键 (Space)】，角色将发力向上起跳腾空！"
+			_rebuild_tutorial_keys(["SPACE"])
+			if _tutorial_arrow != null:
+				_tutorial_arrow.visible = false
+		3:
+			_tutorial_banner_style.border_color = Color(1.0, 0.85, 0.3)
+			_tutorial_title_label.text = "🎯 基础身法 (4/6): 攀登 2 格高台"
+			_tutorial_sub_label.text = "贴近前方发光的 2 格高障碍平台边缘，按下 【空格键 (Space)】 触发物理攀登翻越上台！"
+			_rebuild_tutorial_keys(["W", "+", "SPACE"])
+			if _tutorial_arrow != null:
+				_tutorial_arrow.visible = true
+		4:
+			_tutorial_banner_style.border_color = Color(0.85, 0.4, 1.0)
+			_tutorial_title_label.text = "🎯 基础身法 (5/6): 敏捷战术翻滚"
+			_tutorial_sub_label.text = "在地面移动时按下 【Ctrl 键】（或 C 键 / 快速双击 Shift），角色将进行敏捷的战术翻滚闪避！"
+			_rebuild_tutorial_keys(["CTRL", "或", "C"])
+			if _tutorial_arrow != null:
+				_tutorial_arrow.visible = false
+		5:
+			_tutorial_banner_style.border_color = Color(0.2, 0.9, 0.95)
+			_tutorial_title_label.text = "🎯 基础身法 (6/6): 视界自由切换"
+			_tutorial_sub_label.text = "按下 【F3 键】 体验第一人称沉浸视角与第三人称全景视角的自由切换！"
+			_rebuild_tutorial_keys(["F3"])
+			if _tutorial_arrow != null:
+				_tutorial_arrow.visible = false
+		6:
+			if _tutorial_banner != null:
+				_tutorial_banner.visible = false
+			if _tutorial_arrow != null:
+				_tutorial_arrow.visible = false
+			if _tutorial_complete_dialog != null:
+				_tutorial_complete_dialog.visible = true
+			AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/mission_completed.ogg", 0.0)
+
+
+func _advance_tutorial(next_step: int) -> void:
+	AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/go.ogg", -4.0)
+	_set_tutorial_step(next_step)
+
+
+func _build_tutorial_complete_dialog() -> void:
+	_tutorial_complete_dialog = PanelContainer.new()
+	_tutorial_complete_dialog.set_anchors_preset(Control.PRESET_CENTER)
+	_tutorial_complete_dialog.offset_left = -280
+	_tutorial_complete_dialog.offset_right = 280
+	_tutorial_complete_dialog.offset_top = -170
+	_tutorial_complete_dialog.offset_bottom = 170
+	_tutorial_complete_dialog.custom_minimum_size = Vector2(560, 340)
+	_tutorial_complete_dialog.visible = false
+
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.11, 0.16, 0.98)
+	style.set_corner_radius_all(14)
+	style.set_content_margin_all(24)
+	style.set_border_width_all(2)
+	style.border_color = Color(0.3, 0.9, 0.6)
+	_tutorial_complete_dialog.add_theme_stylebox_override("panel", style)
+	_hud_layer.add_child(_tutorial_complete_dialog)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 14)
+	_tutorial_complete_dialog.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "🎉 身法大师 · 互动教学圆满完成！"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if _custom_font != null:
+		title.add_theme_font_override("font", _custom_font)
+	title.add_theme_font_size_override("font_size", 24)
+	title.modulate = Color(0.3, 0.95, 0.65)
+	vbox.add_child(title)
+
+	var desc := Label.new()
+	desc.text = "恭喜您已全面掌握物理动力学角色引擎的核心动作：\n• WASD 位移与 Shift 极速冲刺\n• 空格跳跃与 2 格高台攀登翻越\n• Ctrl 敏捷战术翻滚闪避\n• F3 第一/第三人称视界切换\n\n现在您可以尽情在沙盒中自由体验与探索！"
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _custom_font != null:
+		desc.add_theme_font_override("font", _custom_font)
+	desc.add_theme_font_size_override("font_size", 14)
+	desc.modulate = Color(0.88, 0.92, 0.96)
+	vbox.add_child(desc)
+
+	var continue_btn := Button.new()
+	continue_btn.text = "✨ 继续自由试玩 (Free Play)"
+	if _custom_font != null:
+		continue_btn.add_theme_font_override("font", _custom_font)
+	continue_btn.add_theme_font_size_override("font_size", 16)
+	continue_btn.custom_minimum_size = Vector2(220, 44)
+	continue_btn.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	continue_btn.pressed.connect(func() -> void:
+		_tutorial_complete_dialog.visible = false
+	)
+	vbox.add_child(continue_btn)
+
+
+func _update_tutorial_state(delta: float) -> void:
+	if not _tutorial_active or _player == null:
+		return
+
+	if _tutorial_arrow != null and _tutorial_arrow.visible:
+		var time := Time.get_ticks_msec() * 0.003
+		_tutorial_arrow.position.y = 2.8 + sin(time) * 0.2
+
+	match _tutorial_step:
+		0:
+			if _player.speed() > 0.2:
+				_tutorial_accum_dist += _player.speed() * delta
+			if _tutorial_accum_dist >= 2.5:
+				_advance_tutorial(1)
+		1:
+			if _player.state == PlayerControllerScript.State.RUN:
+				_tutorial_accum_run += delta
+			if _tutorial_accum_run >= 1.2:
+				_advance_tutorial(2)
+		2:
+			if _player.state == PlayerControllerScript.State.JUMPING:
+				_advance_tutorial(3)
+		3:
+			if _player.state == PlayerControllerScript.State.CLIMBING:
+				_advance_tutorial(4)
+		4:
+			if _player.state == PlayerControllerScript.State.ROLLING:
+				_advance_tutorial(5)
+		5:
+			if _camera_toggled_during_step:
+				_advance_tutorial(6)
+
+
+func _process(delta: float) -> void:
+	if _tutorial_active:
+		_update_tutorial_state(delta)
+
 	if _state_label == null or _player == null:
 		return
 	var mode_str := "[第一视角]" if (_camera != null and bool(_camera.get("is_first_person"))) else "[第三视角]"
@@ -364,8 +701,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match key.keycode:
 		KEY_ESCAPE:
+			if _tutorial_complete_dialog != null and _tutorial_complete_dialog.visible:
+				_tutorial_complete_dialog.visible = false
+				return
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-			get_tree().change_scene_to_file(MENU_SCENE)
+			get_tree().change_scene_to_file(return_scene)
 		KEY_TAB:
 			_index = (_index + 1) % _characters.size()
 			_spawn_character()
+		KEY_F3:
+			if _tutorial_active and _tutorial_step == 5:
+				_camera_toggled_during_step = true
+

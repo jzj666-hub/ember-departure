@@ -5,9 +5,11 @@ extends Control
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const MapDataScript = preload("res://scripts/map_data.gd")
 const MapEditorScript = preload("res://scripts/map_editor.gd")
+const PlaygroundScript = preload("res://scripts/playground.gd")
 
 const CHASE_SCENE := "res://scenes/player_client/chase_game.tscn"
 const MAP_EDITOR_SCENE := "res://scenes/map_editor.tscn"
+const PLAYGROUND_SCENE := "res://scenes/playground.tscn"
 const MAIN_GATEWAY_SCENE := "res://scenes/main_menu.tscn"
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 
@@ -15,6 +17,7 @@ var _custom_font: Font = null
 var _guide_dialog: PanelContainer
 var _map_dialog: PanelContainer
 var _workshop_ask_dialog: PanelContainer
+var _trial_ask_dialog: PanelContainer
 var _map_list: ItemList
 
 
@@ -31,6 +34,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
 			get_viewport().set_input_as_handled()
+			if _trial_ask_dialog != null and _trial_ask_dialog.visible:
+				_trial_ask_dialog.visible = false
+				return
 			if _workshop_ask_dialog != null and _workshop_ask_dialog.visible:
 				_workshop_ask_dialog.visible = false
 				return
@@ -110,6 +116,12 @@ func _build_ui() -> void:
 	btn_play.pressed.connect(_open_map_selector)
 	right_col.add_child(btn_play)
 
+	var btn_trial := _create_menu_button("身法试玩沙盒 (Movement Sandbox)", "res://assets/UI_assets/run.svg", Color(0.95, 0.65, 0.15))
+	btn_trial.pressed.connect(func() -> void:
+		_trial_ask_dialog.visible = true
+	)
+	right_col.add_child(btn_trial)
+
 	var btn_editor := _create_menu_button("地图工坊 (Map Studio)", "res://assets/UI_assets/cubes.svg", Color(0.2, 0.65, 0.95))
 	btn_editor.pressed.connect(func() -> void:
 		_workshop_ask_dialog.visible = true
@@ -130,6 +142,7 @@ func _build_ui() -> void:
 	_build_guide_dialog()
 	_build_map_dialog()
 	_build_workshop_ask_dialog()
+	_build_trial_ask_dialog()
 
 
 func _create_menu_button(text: String, icon_path: String, accent_color: Color) -> Button:
@@ -449,5 +462,93 @@ func _build_workshop_ask_dialog() -> void:
 		MapEditorScript.tutorial_on_start = false
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		get_tree().change_scene_to_file(MAP_EDITOR_SCENE)
+	)
+	btn_box.add_child(skip_btn)
+
+
+func _build_trial_ask_dialog() -> void:
+	_trial_ask_dialog = PanelContainer.new()
+	_trial_ask_dialog.set_anchors_preset(PRESET_CENTER)
+	_trial_ask_dialog.offset_left = -260
+	_trial_ask_dialog.offset_right = 260
+	_trial_ask_dialog.offset_top = -180
+	_trial_ask_dialog.offset_bottom = 180
+	_trial_ask_dialog.custom_minimum_size = Vector2(520, 360)
+	_trial_ask_dialog.visible = false
+
+	var diag_style := StyleBoxFlat.new()
+	diag_style.bg_color = Color(0.10, 0.12, 0.16, 0.98)
+	diag_style.set_corner_radius_all(12)
+	diag_style.set_content_margin_all(20)
+	diag_style.set_border_width_all(2)
+	diag_style.border_color = Color(1.0, 0.75, 0.2)
+	_trial_ask_dialog.add_theme_stylebox_override("panel", diag_style)
+	add_child(_trial_ask_dialog)
+
+	var vbox := VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 14)
+	_trial_ask_dialog.add_child(vbox)
+
+	var icon_tex := TextureRect.new()
+	if ResourceLoader.exists("res://assets/UI_assets/run.svg"):
+		icon_tex.texture = load("res://assets/UI_assets/run.svg")
+	icon_tex.custom_minimum_size = Vector2(50, 50)
+	icon_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_tex.modulate = Color(1.0, 0.75, 0.2)
+	vbox.add_child(icon_tex)
+
+	var title := Label.new()
+	title.text = "身法试玩沙盒 (Movement Sandbox)"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if _custom_font != null:
+		title.add_theme_font_override("font", _custom_font)
+	title.add_theme_font_size_override("font_size", 22)
+	title.modulate = Color(1.0, 0.85, 0.3)
+	vbox.add_child(title)
+
+	var desc := Label.new()
+	desc.text = "在此沙盒中体验高精度物理动力学角色引擎：前后左右走动、Shift疾步奔跑、起跳腾空、攀登翻越 2 格高台、战术翻滚及视界切换！\n\n是否开启【身法基础互动教学】？"
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	if _custom_font != null:
+		desc.add_theme_font_override("font", _custom_font)
+	desc.add_theme_font_size_override("font_size", 14)
+	desc.modulate = Color(0.85, 0.88, 0.92, 0.9)
+	vbox.add_child(desc)
+
+	var btn_box := HBoxContainer.new()
+	btn_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_box.add_theme_constant_override("separation", 16)
+	vbox.add_child(btn_box)
+
+	var tut_btn := Button.new()
+	tut_btn.text = "🚀 开启身法教学 (Tutorial)"
+	if _custom_font != null:
+		tut_btn.add_theme_font_override("font", _custom_font)
+	tut_btn.add_theme_font_size_override("font_size", 16)
+	tut_btn.custom_minimum_size = Vector2(190, 42)
+	tut_btn.pressed.connect(func() -> void:
+		_trial_ask_dialog.visible = false
+		PlaygroundScript.start_with_tutorial = true
+		PlaygroundScript.return_scene = "res://scenes/player_client/title_screen.tscn"
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		get_tree().change_scene_to_file(PLAYGROUND_SCENE)
+	)
+	btn_box.add_child(tut_btn)
+
+	var skip_btn := Button.new()
+	skip_btn.text = "⏩ 跳过教学，自由试玩"
+	if _custom_font != null:
+		skip_btn.add_theme_font_override("font", _custom_font)
+	skip_btn.add_theme_font_size_override("font_size", 16)
+	skip_btn.custom_minimum_size = Vector2(170, 42)
+	skip_btn.pressed.connect(func() -> void:
+		_trial_ask_dialog.visible = false
+		PlaygroundScript.start_with_tutorial = false
+		PlaygroundScript.return_scene = "res://scenes/player_client/title_screen.tscn"
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		get_tree().change_scene_to_file(PLAYGROUND_SCENE)
 	)
 	btn_box.add_child(skip_btn)
