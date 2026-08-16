@@ -121,21 +121,21 @@ static func _init_footstep_samples() -> void:
 		_land_stream = create_footstep_sample(0.85, true)
 
 
-static func play_footstep(volume_db: float = -12.0) -> void:
+static func play_footstep(volume_db: float = -12.0, pitch_scale: float = 1.0) -> void:
 	_init_footstep_samples()
 	if _footstep_streams.is_empty():
 		return
 	var stream := _footstep_streams[randi() % _footstep_streams.size()]
-	play_sound(stream, volume_db)
+	play_sound(stream, volume_db, pitch_scale)
 
 
 static func play_land_sound(volume_db: float = -6.0) -> void:
 	_init_footstep_samples()
 	if _land_stream != null:
-		play_sound(_land_stream, volume_db)
+		play_sound(_land_stream, volume_db, 0.9)
 
 
-static func play_sound(stream: AudioStream, volume_db: float = 0.0) -> void:
+static func play_sound(stream: AudioStream, volume_db: float = 0.0, pitch_scale: float = 1.0) -> void:
 	if stream == null or _player_pool.is_empty():
 		return
 	for p in _player_pool:
@@ -144,6 +144,7 @@ static func play_sound(stream: AudioStream, volume_db: float = 0.0) -> void:
 		if not p.playing:
 			p.stream = stream
 			p.volume_db = volume_db
+			p.pitch_scale = pitch_scale
 			p.play()
 			return
 	# All busy, preempt first valid
@@ -152,6 +153,7 @@ static func play_sound(stream: AudioStream, volume_db: float = 0.0) -> void:
 			p.stop()
 			p.stream = stream
 			p.volume_db = volume_db
+			p.pitch_scale = pitch_scale
 			p.play()
 			return
 

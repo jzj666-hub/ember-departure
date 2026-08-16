@@ -1223,22 +1223,28 @@ func _update_footsteps(delta: float) -> void:
 	if speed_val < 0.2:
 		return
 
-	var step_interval := 1.45
-	var step_vol := -14.0
+	# Calibrated step stride distance (meters per individual foot contact)
+	var step_interval := 0.62 # Walk stride: 1 step per ~0.56s at 1.1 m/s
+	var step_vol := -13.0
+	var base_pitch := 1.0
+
 	if state == State.RUN:
-		step_interval = 2.1
-		step_vol = -10.0
+		step_interval = 1.15 # Sprint stride: 1 step per ~0.32s at 3.6 m/s (matches sprint animation footfalls!)
+		step_vol = -7.5
+		base_pitch = 1.06
 	elif state == State.CROUCH:
-		step_interval = 0.95
+		step_interval = 0.38
 		step_vol = -18.0
+		base_pitch = 0.92
 	elif state == State.BRAKING:
-		step_interval = 1.1
-		step_vol = -12.0
+		step_interval = 0.55
+		step_vol = -10.0
+		base_pitch = 0.95
 
 	_footstep_distance += speed_val * delta
 	if _footstep_distance >= step_interval:
 		_footstep_distance = fmod(_footstep_distance, step_interval)
-		AudioManagerScript.play_footstep(step_vol)
+		AudioManagerScript.play_footstep(step_vol, base_pitch * randf_range(0.96, 1.04))
 
 
 ## Puts `ground_speed` on the velocity along the character's own facing, leaving
