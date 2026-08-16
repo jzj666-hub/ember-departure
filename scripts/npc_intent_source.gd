@@ -20,14 +20,6 @@ signal build_requested(coord: Vector3i)
 var _path := PackedVector3Array()
 ## How each point is reached, as NavGrid.Move. Parallel to _path when present.
 var _moves := PackedInt32Array()
-## Special path data dictionary keyed by path index.
-var _special_links := {}
-var _special_traj_active := false
-var _special_traj_time := 0.0
-var _special_traj_data := {}
-var _special_traj_takeoff_pos := Vector3.ZERO
-var _special_traj_landing_pos := Vector3.ZERO
-var _special_traj_jump_fired := false
 var _path_index := 0
 var _target_pos := Vector3.ZERO
 var _has_target := false
@@ -176,10 +168,9 @@ func set_path(path: PackedVector3Array, target: Vector3) -> void:
 ## stops at the nearest reachable cell instead of `target`.
 ## Post: _path_index == 0, obstruction state cleared.
 func set_plan(path: PackedVector3Array, moves: PackedInt32Array, target: Vector3,
-		complete := true, special_links := {}) -> void:
+		complete := true) -> void:
 	_path = path
 	_moves = moves
-	_special_links = special_links
 	_target_pos = target
 	_path_index = 0
 	_has_target = not _path.is_empty()
@@ -197,19 +188,13 @@ func set_plan_result(result: Dictionary) -> void:
 	set_plan(result.get("points", PackedVector3Array()),
 		result.get("moves", PackedInt32Array()),
 		result.get("goal", Vector3.ZERO),
-		bool(result.get("complete", true)),
-		result.get("special_links", {}))
+		bool(result.get("complete", true)))
 
 
 ## Clear current navigation target.
 func clear_target() -> void:
 	_path.clear()
 	_moves.clear()
-	_special_links.clear()
-	_special_traj_active = false
-	_special_traj_time = 0.0
-	_special_traj_data.clear()
-	_special_traj_jump_fired = false
 	_path_index = 0
 	_has_target = false
 	_reset_obstruction()
@@ -235,9 +220,6 @@ func _reset_jump() -> void:
 	_jump_timer = 0.0
 	_coyote_pending = false
 	_coyote_timer = 0.0
-	_special_traj_active = false
-	_special_traj_time = 0.0
-	_special_traj_jump_fired = false
 
 
 ## Check if navigation target is active.
@@ -513,21 +495,6 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 		_finish()
 		return
 
-	if _special_traj_active:
-		if _drive_special_trajectory(char_body, body_pos, delta, intent):
-			return
-
-	if not _special_traj_active and _special_links.has(_path_index):
-		var sp_data: Dictionary = _special_links[_path_index]
-		var s_pos := _parse_vec3_helper(sp_data.get("start_pos"))
-		var t_pos := _parse_vec3_helper(sp_data.get("takeoff_pos"))
-		var trigger_pos := s_pos if s_pos != Vector3.ZERO else t_pos
-		var dist_to_trigger: float = body_pos.distance_to(trigger_pos)
-		if dist_to_trigger <= 0.65:
-			_start_special_trajectory(sp_data)
-			if _drive_special_trajectory(char_body, body_pos, delta, intent):
-				return
-
 	if _nav_grid != null and not _nav_grid.is_path_valid(_path, _path_index) and _repath_cooldown <= 0.0:
 		_repath_cooldown = 0.5
 		repath_requested.emit(body_pos, _target_pos)
@@ -607,123 +574,6 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 	intent.run = _run and _avoid_left <= 0.0
 
 
-# --- Special Trajectory Playback --------------------------------------------
-
-func _start_special_trajectory(sp_data: Dictionary) -> void:
-	_special_traj_active = true
-	_special_traj_time = 0.0
-	_special_traj_data = sp_data
-	_special_traj_jump_fired = false
-	_special_traj_takeoff_pos = _parse_vec3_helper(sp_data.get("takeoff_pos"))
-	_special_traj_landing_pos = _parse_vec3_helper(sp_data.get("landing_pos"))
-
-
-func _drive_special_trajectory(char_body: CharacterBody3D, body_pos: Vector3, delta: float,
-		intent: CharacterIntent) -> bool:
-	_special_traj_time += delta
-	var traj: Array = _special_traj_data.get("trajectory", [])
-	var takeoff_time: float = float(_special_traj_data.get("takeoff_time", 0.0))
-	var duration: float = float(_special_traj_data.get("duration", 1.0))
-	var jump_heading: float = float(_special_traj_data.get("heading", 0.0))
-	var takeoff_pos: Vector3 = _special_traj_takeoff_pos
-
-	var sample: Dictionary = _sample_trajectory(traj, _special_traj_time)
-	var target_v: Vector3 = sample.get("v", Vector3.ZERO)
-	var phase: String = sample.get("phase", "runup")
-
-	# 1. Align orientation & sprint intent
-	intent.heading = jump_heading
-	intent.move = Vector2(0.0, 1.0)
-	intent.run = true
-	_stuck_time = 0.0
-
-	# 2. Match exact recorded horizontal trajectory velocity
-	if char_body != null:
-		char_body.rotation.y = jump_heading
-		char_body.velocity.x = target_v.x
-		char_body.velocity.z = target_v.z
-
-	# 3. Trigger takeoff
-	if not _special_traj_jump_fired:
-		var dist_to_takeoff: float = Vector2(takeoff_pos.x - body_pos.x, takeoff_pos.z - body_pos.z).length()
-		if _special_traj_time >= takeoff_time or phase == "airborne" or dist_to_takeoff <= 0.25:
-			request_jump()
-			_special_traj_jump_fired = true
-			if char_body != null:
-				var t_vel_arr: Array = _special_traj_data.get("takeoff_velocity", [target_v.x, target_v.y, target_v.z])
-				if t_vel_arr.size() >= 3:
-					char_body.velocity.y = maxf(float(t_vel_arr[1]), 5.0)
-
-	# 4. Landing detection
-	if _special_traj_jump_fired:
-		var grounded: bool = char_body != null and char_body.is_on_floor()
-		if (grounded and _special_traj_time > takeoff_time + 0.15) or _special_traj_time >= duration + 0.1:
-			_special_traj_active = false
-			_jump_done_index = _path_index
-			_path_index += 1
-			_repath_cooldown = 0.0
-			if _has_target and _path_index >= _path.size():
-				_finish()
-			return true
-
-	# 5. Safety timeout
-	if _special_traj_time > duration + 1.5:
-		_special_traj_active = false
-		_repath_cooldown = 0.0
-		repath_requested.emit(body_pos, _target_pos)
-		return false
-
-	return true
-
-
-func _sample_trajectory(traj: Array, t: float) -> Dictionary:
-	if traj.is_empty():
-		return {}
-	if traj.size() == 1 or t <= float(traj[0].get("t", 0.0)):
-		var v_arr: Array = traj[0].get("v", [0,0,0])
-		var p_arr: Array = traj[0].get("p", [0,0,0])
-		return {
-			"p": Vector3(p_arr[0], p_arr[1], p_arr[2]),
-			"v": Vector3(v_arr[0], v_arr[1], v_arr[2]),
-			"phase": traj[0].get("phase", "runup"),
-			"grounded": traj[0].get("grounded", true),
-		}
-	if t >= float(traj[-1].get("t", 0.0)):
-		var v_arr: Array = traj[-1].get("v", [0,0,0])
-		var p_arr: Array = traj[-1].get("p", [0,0,0])
-		return {
-			"p": Vector3(p_arr[0], p_arr[1], p_arr[2]),
-			"v": Vector3(v_arr[0], v_arr[1], v_arr[2]),
-			"phase": traj[-1].get("phase", "airborne"),
-			"grounded": traj[-1].get("grounded", false),
-		}
-	for i in range(traj.size() - 1):
-		var t0: float = float(traj[i].get("t", 0.0))
-		var t1: float = float(traj[i + 1].get("t", 0.0))
-		if t >= t0 and t <= t1:
-			var factor := (t - t0) / maxf(t1 - t0, 0.0001)
-			var p0: Array = traj[i]["p"]
-			var p1: Array = traj[i + 1]["p"]
-			var v0: Array = traj[i]["v"]
-			var v1: Array = traj[i + 1]["v"]
-			var p := Vector3(lerpf(p0[0], p1[0], factor), lerpf(p0[1], p1[1], factor), lerpf(p0[2], p1[2], factor))
-			var v := Vector3(lerpf(v0[0], v1[0], factor), lerpf(v0[1], v1[1], factor), lerpf(v0[2], v1[2], factor))
-			var phase: String = traj[i + 1].get("phase", traj[i].get("phase", "runup"))
-			var grounded: bool = bool(traj[i].get("grounded", true)) if factor < 0.5 else bool(traj[i + 1].get("grounded", true))
-			return { "p": p, "v": v, "phase": phase, "grounded": grounded }
-	var last_v: Array = traj[-1].get("v", [0,0,0])
-	var last_p: Array = traj[-1].get("p", [0,0,0])
-	return { "p": Vector3(last_p[0], last_p[1], last_p[2]), "v": Vector3(last_v[0], last_v[1], last_v[2]), "phase": "airborne", "grounded": false }
-
-
-static func _parse_vec3_helper(v: Variant) -> Vector3:
-	if v is Vector3:
-		return v
-	if v is Array and v.size() >= 3:
-		return Vector3(float(v[0]), float(v[1]), float(v[2]))
-	return Vector3.ZERO
-
-
 ## The committed arc: asks for nothing at all.
 ##
 ## _drive_air() only touches the horizontal velocity while a move is being asked
@@ -767,53 +617,29 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 		return false
 	if char_body == null or _nav_grid == null:
 		return false
-
-	var is_special: bool = (_path_index < _moves.size() and _moves[_path_index] == NavGrid.Move.SPECIAL_JUMP) or _special_links.has(_path_index)
-	var sp_data: Dictionary = _special_links.get(_path_index, {})
-
 	var cap := _nav_grid.capability()
 	var land := _path[_path_index]
 	var start_wp := _path[_path_index - 1] if _path_index > 0 else body_pos
 	var nominal_dh := land.y - start_wp.y
-
-	var t: float = float(sp_data.get("duration", 0.0))
-	if t <= 0.0:
-		t = cap.flight_time(nominal_dh)
-		if is_nan(t) or t <= 0.0:
-			t = cap.flight_time(land.y - body_pos.y)
+	var t: float = cap.flight_time(nominal_dh)
 	if is_nan(t) or t <= 0.0:
-		if is_special:
-			t = 0.85
-		else:
-			return false
+		t = cap.flight_time(land.y - body_pos.y)
+	if is_nan(t) or t <= 0.0:
+		return false
 
 	if _jump_done_index == _path_index:
 		return false
 
-	var jump_wanted := wanted
-	var jump_horiz := horiz
-
-	if is_special:
-		var flat_dir := Vector3(land.x - start_wp.x, 0.0, land.z - start_wp.z)
-		if flat_dir.length_squared() > 0.001:
-			jump_wanted = flat_dir.normalized()
-			jump_horiz = Vector2(land.x - body_pos.x, land.z - body_pos.z).length()
-
-	var dist_to_start := Vector2(start_wp.x - body_pos.x, start_wp.z - body_pos.z).dot(Vector2(jump_wanted.x, jump_wanted.z))
-
 	if _jump_index != _path_index:
 		_jump_index = _path_index
+		_jump_phase = JumpPhase.CENTER if _is_extreme_gap_jump(_path_index) else JumpPhase.APPROACH
 		_jump_armed = false
 		_jump_backed = false
 		_jump_timer = 0.0
-		if is_special:
-			_jump_phase = JumpPhase.BACK_UP if dist_to_start < 1.0 else JumpPhase.APPROACH
-		else:
-			_jump_phase = JumpPhase.CENTER if _is_extreme_gap_jump(_path_index) else JumpPhase.APPROACH
 	_jump_timer += delta
 
 	var center_pt := start_wp
-	if _nav_grid != null and not is_special:
+	if _nav_grid != null:
 		var node := _nav_grid.standing_node(body_pos)
 		if node != NavGrid.NO_CELL:
 			center_pt = NavGrid.foot(node)
@@ -821,8 +647,11 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 	var is_extreme := _is_extreme_gap_jump(_path_index)
 	var is_offset_extreme := _is_offset_extreme_gap_jump(_path_index)
 
+	var jump_wanted := wanted
+	var jump_horiz := horiz
+
 	# Offset jumps: only for Case 3 (3-cell void up 1m with secondary offset).
-	if not is_special and is_offset_extreme:
+	if is_offset_extreme:
 		var dx: float = land.x - start_wp.x
 		var dz: float = land.z - start_wp.z
 		var adx: float = absf(dx)
@@ -840,9 +669,12 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 	var speed := travel.length()
 	var reach := speed * t
 	var runway := _runway_ahead(body_pos, jump_wanted)
+	# Speed the arc would need to land dead on the waypoint if it left from the
+	# rim rather than from here, capped at what the chase can actually deliver.
+	# A void at the limit of the body's range cannot be landed centrally at all -
+	# it is crossed by leaving at the rim flat out and landing just inside the far
+	# lip - and an uncapped figure would make that run-up look impossible.
 	var wanted_v: float = minf(maxf(jump_horiz - runway, 0.0) / t, _run_speed * RUN_ASYMPTOTE)
-	if is_special:
-		wanted_v = _run_speed
 
 	if _jump_phase == JumpPhase.CENTER:
 		var to_center := Vector3(center_pt.x - body_pos.x, 0.0, center_pt.z - body_pos.z)
@@ -859,10 +691,12 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 
 	if _jump_phase == JumpPhase.BACK_UP:
 		var behind := _runway_ahead(body_pos, -jump_wanted)
-		if (is_special and dist_to_start >= 2.0) or (not is_special and runway >= _runup_distance(0.0, wanted_v) + RIM_SLACK) \
+		if runway >= _runup_distance(0.0, wanted_v) + RIM_SLACK \
 				or behind <= RIM_SLACK or _jump_timer >= JUMP_BACK_UP_MAX:
 			_jump_phase = JumpPhase.APPROACH
 		else:
+			# Facing the jump line while walking backwards down it, so no turn is
+			# left to make once the run starts.
 			intent.heading = atan2(jump_wanted.x, jump_wanted.z)
 			intent.move = Vector2(0.0, -1.0)
 			intent.run = false
@@ -874,10 +708,9 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 	var aligned: bool = speed < 0.05 \
 		or travel.normalized().dot(Vector2(jump_wanted.x, jump_wanted.z)) >= JUMP_ALIGN
 	var at_rim: bool = runway <= RIM_SLACK
-	var at_takeoff_spot: bool = is_special and (dist_to_start <= 0.18 or at_rim)
 
 	# Coyote run: ONLY for extreme jumps that cannot reach from the rim.
-	if is_extreme and grounded and at_rim and not is_special and not (_jump_armed and aligned and reach >= jump_horiz):
+	if is_extreme and grounded and at_rim and not (_jump_armed and aligned and reach >= jump_horiz):
 		intent.heading = atan2(jump_wanted.x, jump_wanted.z)
 		intent.move = Vector2(0.0, 1.0)
 		intent.run = true
@@ -902,7 +735,7 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 			intent.run = true
 			return true
 
-	if grounded and (at_takeoff_spot or at_rim or (_jump_armed and aligned and reach >= jump_horiz)):
+	if grounded and (at_rim or (_jump_armed and aligned and reach >= jump_horiz)):
 		request_jump()
 		_coyote_pending = false
 		_coyote_timer = 0.0
@@ -914,7 +747,9 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 		intent.run = false
 		return true
 
-	# No room to wind up before the rim: retreat down the jump line first.
+	# No room to wind up before the rim: retreat down the jump line first. Tried
+	# once per leg - a retreat that found no room will not find any on a second
+	# go, and alternating the two is how a body ends up pacing on the spot.
 	if grounded and not _jump_backed and _jump_timer <= 0.25 \
 			and _runup_distance(speed, wanted_v) > runway:
 		_jump_backed = true
@@ -927,7 +762,6 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 
 	intent.heading = atan2(jump_wanted.x, jump_wanted.z)
 	intent.move = Vector2(0.0, 1.0)
-	intent.run = true
 	# Sprint while the arc still falls short of the waypoint, ease off once it
 	# would overshoot. Easing off is what lets the crossing be met from below: the
 	# chase decelerates far harder than the closing distance shrinks, so an arc

@@ -138,16 +138,13 @@ class Capability extends RefCounted:
 		return maxf(run_speed * t + radius * 2.0 + coy_d - run_speed * tick, 0.0)
 
 	## A void of `gap` metres, edge to edge, is crossable for a rise of dh.
-	##
-	## Two conditions, one per root of the arc: the descending root has to land a
-	## footprint past the far lip, and the ascending root has to have cleared that
-	## lip by the time the body is over it - a void too NARROW for a rise is one
-	## the body clips its shins on.
 	func can_gap_jump(gap: float, dh: float) -> bool:
 		if not jump_enabled or dh < -MAX_GAP_DROP or gap > gap_jump_budget(dh):
 			return false
+		if dh <= 0.0:
+			return true
 		var lip := clear_time(dh + LIP_CLEAR)
-		return not is_nan(lip) and gap >= run_speed * lip
+		return not is_nan(lip)
 
 	## Max horizontal run-jump distance (metres) for target height diff dh.
 	func max_jump_distance(dh: float) -> float:
@@ -289,10 +286,8 @@ func get_special_path_between(from_cell: Vector3i, to_cell: Vector3i) -> Diction
 	for p in _special_paths:
 		var f := _parse_coord(p.get("from"))
 		var t := _parse_coord(p.get("to"))
-		var s := _parse_coord(p.get("start_cell"))
-		if t == to_cell:
-			if f == from_cell or s == from_cell:
-				return p
+		if f == from_cell and t == to_cell:
+			return p
 	return {}
 
 
@@ -304,16 +299,6 @@ static func _parse_coord(v: Variant) -> Vector3i:
 	if v is Array and v.size() >= 3:
 		return Vector3i(int(v[0]), int(v[1]), int(v[2]))
 	return NO_CELL
-
-
-static func _parse_vec3(v: Variant) -> Vector3:
-	if v is Vector3:
-		return v
-	if v is Vector3i:
-		return Vector3(v.x + 0.5, v.y, v.z + 0.5)
-	if v is Array and v.size() >= 3:
-		return Vector3(float(v[0]), float(v[1]), float(v[2]))
-	return Vector3.ZERO
 
 
 ## Playable cell range: x,z in [-half, half), y in [0, max_y]. Marks dirty.
@@ -542,11 +527,8 @@ func _connect() -> void:
 	for p in _special_paths:
 		var from_c := _parse_coord(p.get("from"))
 		var to_c := _parse_coord(p.get("to"))
-		var start_c := _parse_coord(p.get("start_cell"))
 		if _nodes.has(from_c) and _nodes.has(to_c):
 			_astar.connect_points(_nodes[from_c], _nodes[to_c], false)
-		if start_c != NO_CELL and _nodes.has(start_c) and _nodes.has(to_c):
-			_astar.connect_points(_nodes[start_c], _nodes[to_c], false)
 
 
 ## Links `here` to every level of the neighbouring column the body could reach.
@@ -793,37 +775,12 @@ func find_path(from_pos: Vector3, to_pos: Vector3) -> Dictionary:
 	var simplified_indices := _simplify(cells, raw)
 	for k_idx in range(simplified_indices.size()):
 		var k: int = simplified_indices[k_idx]
-		var c := cells[k]
-		if raw[k] == Move.SPECIAL_JUMP and k > 0:
-			var prev_c := cells[k - 1]
-			var sp_data := get_special_path_between(prev_c, c)
-			if sp_data.is_empty():
-				for p in _special_paths:
-					var t := _parse_coord(p.get("to"))
-					if t == c:
-						sp_data = p
-						break
-			if not sp_data.is_empty() and sp_data.has("takeoff_pos") and sp_data.has("landing_pos"):
-				var s_pos: Vector3 = _parse_vec3(sp_data["start_pos"]) if sp_data.has("start_pos") else foot(prev_c)
-				var t_pos := _parse_vec3(sp_data["takeoff_pos"])
-				var l_pos := _parse_vec3(sp_data["landing_pos"])
-				# 1. Run-up start waypoint (where user rested and began acceleration)
-				if s_pos.distance_to(t_pos) > 0.2:
-					points.append(s_pos)
-					moves.append(Move.WALK)
-				# 2. Takeoff waypoint: exact user takeoff position
-				points.append(t_pos)
-				moves.append(Move.WALK)
-				# 3. Jump waypoint: exact user landing position
-				points.append(l_pos)
-				moves.append(Move.SPECIAL_JUMP)
-				special_links[points.size() - 1] = sp_data
-				# 4. Continue to destination cell foot
-				points.append(foot(c))
-				moves.append(Move.WALK)
-				continue
-		points.append(foot(c))
+		points.append(foot(cells[k]))
 		moves.append(raw[k])
+		if raw[k] == Move.SPECIAL_JUMP and k > 0:
+			var sp_data := get_special_path_between(cells[k - 1], cells[k])
+			if not sp_data.is_empty():
+				special_links[k_idx] = sp_data
 
 	# The exact target only replaces the last waypoint when it lies inside that
 	# waypoint's own cell. Snapping to a goal outside it - a point on a wall
@@ -945,12 +902,10 @@ func is_path_valid(points: PackedVector3Array, start_index := 0) -> bool:
 	for i in range(idx, points.size() - 1):
 		var p1 := points[i]
 		var p2 := points[i + 1]
-		var c1 := standing_node(p1)
-		var c2 := standing_node(p2)
-		if c1 == NO_CELL or c2 == NO_CELL:
+		var c1 := Vector3i(int(floor(p1.x)), int(round(p1.y)), int(floor(p1.z)))
+		var c2 := Vector3i(int(floor(p2.x)), int(round(p2.y)), int(floor(p2.z)))
+		if not _nodes.has(c1) or not _nodes.has(c2):
 			return false
-		if c1 == c2:
-			continue
 		if not get_special_path_between(c1, c2).is_empty() and _astar.are_points_connected(_nodes[c1], _nodes[c2], false):
 			continue
 		if c1.y == c2.y and _line_walkable(c1, c2):

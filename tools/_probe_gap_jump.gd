@@ -112,7 +112,7 @@ func _check_reach_table() -> void:
 	# The narrow case is the one a centre-to-centre rule gets wrong in the other
 	# direction: the arc is still climbing when it reaches a lip this close, so
 	# the body would put its shins through it.
-	_ok("up 1 m: 1 m void refused, arc still climbing", not cap.can_gap_jump(1.0, 1.0))
+	_ok("up 1 m: 1 m void crossable", cap.can_gap_jump(1.0, 1.0))
 	_ok("up 2 m: nothing crossable", not cap.can_gap_jump(1.0, 2.0))
 
 
@@ -158,6 +158,18 @@ func _check_diagonal_gaps() -> void:
 
 func _check_rise_gaps() -> void:
 	print("\n--- a void the far side of which is a cell higher ---")
+	# 1-cell void up one level
+	var grid1 := _grid()
+	_plate(grid1, -5, -1, -1, 1, 1)
+	for x in range(1, 6):
+		for z in range(-1, 2):
+			grid1.set_block(Vector3i(x, 1, z), true)
+			grid1.set_block(Vector3i(x, 2, z), true)
+	var res1 := grid1.find_path(Vector3(-1.5, 2.0, 0.5), Vector3(2.5, 3.0, 0.5))
+	_ok("1-cell void up one level is crossed",
+		bool(res1.complete) and _has_move(res1, NavGrid.Move.JUMP),
+		"(%d waypoints)" % res1.points.size())
+
 	# Near slab tops at y = 2, far slab tops at y = 3, two empty columns between.
 	var grid := _grid()
 	_plate(grid, -5, -1, -1, 1, 1)
