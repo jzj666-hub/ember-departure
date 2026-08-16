@@ -319,6 +319,8 @@ func _build_visual_helpers() -> void:
 	_beacon_instance.visible = false
 	add_child(_beacon_instance)
 
+	_build_tutorial_arrow()
+
 	_highlight = _make_wire_cube()
 	add_child(_highlight)
 	_ghost = _make_ghost_cube()
@@ -916,6 +918,10 @@ func _on_special_path_recorded(path_data: Dictionary) -> void:
 	_set_status("特殊跳跃录制成功！按 R 继续录制下一条，按 TAB 切换自由建造")
 
 	if _interactive_tutorial_active and _tutorial_step == 4:
+		# Reset character back to starting platform (Platform 1)
+		_npc.global_position = Vector3(1.0, 1.2, 1.0)
+		_npc.velocity = Vector3.ZERO
+		_follow_camera.snap()
 		_advance_interactive_tutorial(5)
 
 
@@ -1683,18 +1689,18 @@ func _advance_interactive_tutorial(step: int) -> void:
 				_interactive_banner_icon.texture = load("res://assets/UI_assets/digital-trace.svg")
 				_interactive_banner_icon.modulate = Color(0.2, 0.85, 1.0)
 			_interactive_banner_title.text = "🎯 新手任务 (5/6): 录制极限跳跃轨迹"
-			_interactive_banner_sub.text = "人机身法极限不如玩家！在起点方块边缘停下保持静止，按【R 键】就绪，然后全力助跑跳到对面的方块上！"
+			_interactive_banner_sub.text = "人机原本无法判断断台可达。按【R 键】就绪，然后助跑跳到对面跳台！系统将自动捕获你的跳跃轨迹，作为人机新的可行路径！"
 			_interactive_banner_style.border_color = Color(0.2, 0.85, 1.0)
-			_set_status("【任务 5/6】站在起点停下，按 R 键就绪后助跑起跳跨越断台")
+			_set_status("【任务 5/6】按 R 键就绪，全力助跑起跳跨越断台，让人机学习新路径")
 
 		5:
 			if ResourceLoader.exists("res://assets/UI_assets/claw-slashes.svg"):
 				_interactive_banner_icon.texture = load("res://assets/UI_assets/claw-slashes.svg")
 				_interactive_banner_icon.modulate = Color(1.0, 0.88, 0.3)
 			_interactive_banner_title.text = "🎯 新手任务 (6/6): 见证 AI 学习并复现跳跃"
-			_interactive_banner_sub.text = "录制成功！按【TAB 键】回到自由建造，按住【Shift + 左键】点击对面方块，观察 NPC 学习并复现你的轨迹！"
+			_interactive_banner_sub.text = "录制成功！角色已重置回起点。按【TAB 键】回到自由建造，按住【Shift + 左键】点击对面跳台，见证 NPC 完美复现你的跳跃！"
 			_interactive_banner_style.border_color = Color(1.0, 0.88, 0.3)
-			_set_status("【任务 6/6】按 TAB 回到建造，Shift+左键点击对面方块观察 NPC 跳跃")
+			_set_status("【任务 6/6】角色已回起点，按 TAB 建造模式并 Shift+左键 命令 NPC 跨越跳跃")
 
 		6:
 			_interactive_banner.visible = false

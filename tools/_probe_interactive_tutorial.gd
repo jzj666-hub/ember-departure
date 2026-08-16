@@ -117,6 +117,9 @@ func _test_interactive_tutorial_flow() -> void:
 	editor.call("_on_special_path_recorded", dummy_path)
 	_ok("Recording special jump advances to Step 5", editor.get("_tutorial_step") == 5)
 
+	var npc_node: Node3D = editor.get("_npc")
+	_ok("Character reset back to origin platform", npc_node.global_position.distance_to(Vector3(1.0, 1.2, 1.0)) < 0.3)
+
 	# --- Step 5 -> Step 6: Recalculate Path with AI Replay Verification ---
 	editor.call("_recalculate_npc_path", Vector3(1, 1.2, 5))
 	_ok("Testing AI special jump execution advances to Step 6 (Complete)", editor.get("_tutorial_step") == 6)
