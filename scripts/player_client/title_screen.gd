@@ -136,9 +136,16 @@ func _build_ui() -> void:
 	right_col.add_theme_constant_override("separation", 12)
 	main_box.add_child(right_col)
 
-	var btn_play := _create_menu_button("开始追缉逃生 (Pursuit Challenge)", "res://assets/UI_assets/claw-slashes.svg", Color(0.9, 0.25, 0.2))
+	var btn_play := _create_menu_button("单机追缉对决 (Solo Pursuit Challenge)", "res://assets/UI_assets/claw-slashes.svg", Color(0.9, 0.25, 0.2))
 	btn_play.pressed.connect(_open_map_selector)
 	right_col.add_child(btn_play)
+
+	var btn_multi := _create_menu_button("局域网联机对战 (LAN Pursuit Lobby)", "res://assets/UI_assets/daemon-skull.svg", Color(0.25, 0.85, 1.0))
+	btn_multi.pressed.connect(func() -> void:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		SceneLoader.change_scene(get_tree(), "res://scenes/player_client/multiplayer_lobby.tscn", "正在进入局域网联机大厅...")
+	)
+	right_col.add_child(btn_multi)
 
 	var btn_trial := _create_menu_button("身法试玩沙盒 (Movement Sandbox)", "res://assets/UI_assets/run.svg", Color(0.95, 0.65, 0.15))
 	btn_trial.pressed.connect(func() -> void:

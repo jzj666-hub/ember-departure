@@ -2209,3 +2209,8 @@ func _gait_axis(ground_speed: float) -> float:
 
 func weapon_stroke_count() -> int:
 	return _weapon_stroke_count
+
+
+func force_network_anim(action_name: String, _state_val: int) -> void:
+	if not action_name.is_empty():
+		_play_action(action_name, 1.0)
