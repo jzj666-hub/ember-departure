@@ -38,10 +38,12 @@ const DEV_ENTRIES := [
 ]
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const VIDEO_OGV_PATH := "res://assets/UI_assets/主界面动画.ogv"
 
 var _custom_font: Font = null
 var _mode_select_box: VBoxContainer
 var _dev_box: VBoxContainer
+var _video_player: VideoStreamPlayer
 
 
 func _ready() -> void:
@@ -63,9 +65,29 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _build_ui() -> void:
 	var background := ColorRect.new()
-	background.color = Color(0.08, 0.09, 0.11)
+	background.color = Color(0.06, 0.07, 0.09)
 	background.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(background)
+
+	if ResourceLoader.exists(VIDEO_OGV_PATH):
+		var v_stream = load(VIDEO_OGV_PATH)
+		if v_stream != null:
+			_video_player = VideoStreamPlayer.new()
+			_video_player.stream = v_stream
+			_video_player.set_anchors_preset(Control.PRESET_FULL_RECT)
+			_video_player.expand = true
+			_video_player.loop = true
+			_video_player.autoplay = true
+			_video_player.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			_video_player.volume_db = -80.0
+			add_child(_video_player)
+			_video_player.play()
+
+	var overlay := ColorRect.new()
+	overlay.color = Color(0.05, 0.07, 0.10, 0.58)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(overlay)
 
 	var centre := CenterContainer.new()
 	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -101,7 +123,7 @@ func _build_ui() -> void:
 	var btn_player := _make_big_mode_button(
 		"进入 玩家正式端 (Player Mode)",
 		"全套美术画风、真人语音倒数、按键图元指引、1v1 极限追缉与地图工坊",
-		"res://assets/UI_assets/claw-slashes.svg",
+		"res://assets/UI_assets/daemon-skull.svg",
 		Color(0.95, 0.30, 0.22)
 	)
 	btn_player.pressed.connect(func() -> void: _open(PLAYER_CLIENT_SCENE))
@@ -260,10 +282,13 @@ func _show_mode_select() -> void:
 
 
 func _open(scene_path: String) -> void:
+	if scene_path == "res://scenes/playground.tscn":
+		var playground_script = load("res://scripts/playground.gd")
+		if playground_script != null:
+			playground_script.show_debug_hud = true
+			playground_script.return_scene = "res://scenes/main_menu.tscn"
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	var err := get_tree().change_scene_to_file(scene_path)
-	if err != OK:
-		push_error("could not open %s (%d)" % [scene_path, err])
+	SceneLoader.change_scene(get_tree(), scene_path)
 
 
 func _spacer(height: int) -> Control:

@@ -9,16 +9,6 @@ static var _root_node: Node = null
 static var _bgm_player: AudioStreamPlayer = null
 
 
-static func _ensure_pool() -> void:
-	if not _player_pool.is_empty():
-		var p0 := _player_pool[0]
-		if is_instance_valid(p0) and p0.is_inside_tree():
-			return
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree != null and tree.root != null:
-		init_pool(tree.root, 8)
-
-
 static func init_pool(root: Node, pool_size: int = 6) -> void:
 	_root_node = root
 	_player_pool.clear()
@@ -32,8 +22,10 @@ static func init_pool(root: Node, pool_size: int = 6) -> void:
 		_bgm_player = AudioStreamPlayer.new()
 		_bgm_player.name = "BGMPlayer"
 		_bgm_player.bus = "Master"
-		root.add_child(_bgm_player)
-	elif _bgm_player.get_parent() == null:
+
+	if _bgm_player.get_parent() != null and _bgm_player.get_parent() != root:
+		_bgm_player.get_parent().remove_child(_bgm_player)
+	if _bgm_player.get_parent() == null:
 		root.add_child(_bgm_player)
 
 
@@ -144,10 +136,7 @@ static func play_land_sound(volume_db: float = -6.0) -> void:
 
 
 static func play_sound(stream: AudioStream, volume_db: float = 0.0, pitch_scale: float = 1.0) -> void:
-	if stream == null:
-		return
-	_ensure_pool()
-	if _player_pool.is_empty():
+	if stream == null or _player_pool.is_empty():
 		return
 	for p in _player_pool:
 		if not is_instance_valid(p) or not p.is_inside_tree():

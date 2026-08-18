@@ -607,7 +607,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						_set_mode(EditorMode.BUILD)
 						return
 					Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-					get_tree().change_scene_to_file(MENU_SCENE)
+					SceneLoader.change_scene(get_tree(), MENU_SCENE, "返回主菜单...")
 					return
 
 	if _mode == EditorMode.BUILD and not _cursor_free:
@@ -1296,7 +1296,7 @@ func _build_hud() -> void:
 		menu_btn.add_theme_font_override("font", _custom_font)
 	menu_btn.pressed.connect(func() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		get_tree().change_scene_to_file(MENU_SCENE)
+		SceneLoader.change_scene(get_tree(), MENU_SCENE, "返回主菜单...")
 	)
 	top_box.add_child(menu_btn)
 

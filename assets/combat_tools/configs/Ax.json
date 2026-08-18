@@ -23,14 +23,27 @@
 		"walk_clip": "",
 		"run_clip": ""
 	},
+	"trail": {
+		"enabled": true,
+		"base": 0.78,
+		"tip": 1.0,
+		"hue": 46.0,
+		"hue_spread": 69.0,
+		"energy": 0.5,
+		"life": 0.22,
+		"width": 1.0,
+		"particles": 1.0,
+		"light": 0.3,
+		"min_speed": 2.5,
+		"blend_mode": "sub",
+		"fade_exponent": 1.8,
+		"ghost_density": 0.0,
+		"texture_mode": "none"
+	},
 	"entries": [
 		{
 			"trigger": "attack",
 			"to": "slash_1"
-		},
-		{
-			"trigger": "heavy",
-			"to": "heavy_1"
 		}
 	],
 	"actions": [
@@ -42,13 +55,17 @@
 			"duration": 0.0,
 			"lock_move": true,
 			"dash_distance": 0.0,
-			"dash_time": 0.06,
+			"trail": true,
+			"trail_window": [
+				0.0,
+				0.0
+			],
 			"links": [
 				{
 					"trigger": "attack",
 					"window": [
-						0.3,
-						1.2
+						1.2,
+						1.5
 					],
 					"buffer": true,
 					"to": "slash_1"
@@ -56,8 +73,8 @@
 				{
 					"trigger": "heavy",
 					"window": [
-						0.3,
-						1.2
+						1.2,
+						1.5
 					],
 					"buffer": true,
 					"to": "heavy_1"
@@ -66,24 +83,18 @@
 		},
 		{
 			"id": "heavy_1",
-			"clip": "sword_attack",
+			"clip": "sword_regular_b",
 			"rate": 0.7,
 			"flatten": "GROUND",
 			"duration": 0.0,
 			"lock_move": true,
-			"dash_distance": 2.6,
-			"dash_time": 0.07,
-			"links": [
-				{
-					"trigger": "attack",
-					"window": [
-						0.5,
-						1.8
-					],
-					"buffer": true,
-					"to": "slash_1"
-				}
-			]
+			"dash_distance": 0.0,
+			"trail": true,
+			"trail_window": [
+				0.0,
+				0.0
+			],
+			"links": []
 		}
 	]
 }

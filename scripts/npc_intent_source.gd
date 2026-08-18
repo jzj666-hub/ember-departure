@@ -228,7 +228,6 @@ func set_plan(path: PackedVector3Array, moves: PackedInt32Array, target: Vector3
 	_moves = moves
 	_special_links = special_links
 	_target_pos = target
-	_path_index = 0
 	_has_target = not _path.is_empty()
 	_direct_chase_mode = false
 	_plan_complete = complete
@@ -241,6 +240,17 @@ func set_plan(path: PackedVector3Array, moves: PackedInt32Array, target: Vector3
 	_center_repath = false
 	_jump_tracking = false
 	_jump_air_time = 0.0
+
+	_path_index = 0
+	if _path.size() >= 2:
+		var first_move := _moves[1] if _moves.size() > 1 else NavGrid.Move.WALK
+		var is_action_leg := (first_move == NavGrid.Move.JUMP or first_move == NavGrid.Move.SPECIAL_JUMP or first_move == NavGrid.Move.CLIMB or _leg_is_gap_jump(1))
+		if not is_action_leg and not _special_links.has(1):
+			var p0 := _path[0]
+			var flat_dist := Vector2(p0.x - _last_body_pos.x, p0.z - _last_body_pos.z).length()
+			var dy := p0.y - _last_body_pos.y
+			if flat_dist <= 0.75 and absf(dy) <= _step_tolerance:
+				_path_index = 1
 
 
 ## Install a plan straight from NavGrid.find_path().
@@ -548,8 +558,8 @@ func poll(body: Node, delta: float, intent: CharacterIntent) -> void:
 		_was_climbing = false
 		_last_body_pos = body_pos
 		_repath_cooldown = 0.0
+		_reset_obstruction()
 		if _has_target:
-			_repath_cooldown = 0.1
 			repath_requested.emit(_last_body_pos, _target_pos)
 
 	_last_body_pos = body_pos
@@ -708,7 +718,7 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 	var dir := _steer(char_body, body_pos, wanted, delta)
 	intent.heading = atan2(dir.x, dir.z)
 	intent.move = Vector2(0.0, 1.0)
-	intent.run = _run and _avoid_left <= 0.0
+	intent.run = _run
 
 
 ## The committed arc: asks for nothing at all.
@@ -1258,7 +1268,7 @@ func _steer(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 	if tangent.dot(wanted) < 0.0:
 		tangent = -tangent
 	# Kept slightly off the face so the detour peels away instead of hugging it.
-	_avoid_dir = (tangent + normal * 0.25).normalized()
+	_avoid_dir = (tangent + normal * 0.45).normalized()
 	_avoid_left = AVOID_HOLD
 	return _avoid_dir
 

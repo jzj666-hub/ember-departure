@@ -55,8 +55,6 @@ const WRAPPER_SCRIPT := "res://scripts/character.gd"
 ## every export "autorig_actor", so two characters dropped side by side in one
 ## folder would silently overwrite each other's model, textures and .json.
 ##
-## Returns [{id, dir, model, extra_models, scene, anim_dir, own_library,
-## config, target_height, measured_height}].
 static func list_characters() -> Array:
 	var out := []
 	var root := DirAccess.open(CHARACTERS_DIR)
@@ -66,16 +64,19 @@ static func list_characters() -> Array:
 	ids.sort()
 	for id in ids:
 		var dir := CHARACTERS_DIR.path_join(id)
+		var scene_path := dir.path_join("%s.tscn" % id)
 		var models := _find_models(dir)
-		if models.is_empty():
+		var has_scene := ResourceLoader.exists(scene_path) or FileAccess.file_exists(scene_path)
+		if models.is_empty() and not has_scene:
 			continue
+		var model_path: String = models[0] if not models.is_empty() else scene_path
 		var settings := read_settings(dir)
 		out.append({
 			"id": id,
 			"dir": dir,
-			"model": models[0],
-			"extra_models": models.size() - 1,
-			"scene": dir.path_join("%s.tscn" % id),
+			"model": model_path,
+			"extra_models": max(0, models.size() - 1),
+			"scene": scene_path,
 			"anim_dir": dir.path_join(AnimPipelineScript.CHARACTER_ANIM_SUBDIR),
 			"own_library": AnimPipelineScript.character_library_path(id),
 			"config": dir.path_join(CONFIG_FILE),
@@ -150,8 +151,11 @@ static func _find_models(dir_path: String) -> PackedStringArray:
 	if dir == null:
 		return out
 	for f in dir.get_files():
-		if MODEL_EXTS.has(f.get_extension().to_lower()):
-			out.append(dir_path.path_join(f))
+		var clean_name := f.trim_suffix(".import").trim_suffix(".remap")
+		if MODEL_EXTS.has(clean_name.get_extension().to_lower()):
+			var p := dir_path.path_join(clean_name)
+			if not out.has(p):
+				out.append(p)
 	out.sort()
 	return out
 

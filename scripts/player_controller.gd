@@ -1210,9 +1210,6 @@ func _wish_direction() -> Vector3:
 	return (frame.z * _intent.move.y - frame.x * _intent.move.x).normalized()
 
 
-var _footstep_step_left := false
-
-
 func _update_footsteps(delta: float) -> void:
 	if not footstep_enabled or not is_on_floor():
 		_footstep_distance = 0.0
@@ -1226,32 +1223,28 @@ func _update_footsteps(delta: float) -> void:
 	if speed_val < 0.2:
 		return
 
-	# Pacing:
-	# Sprint: 1 step per ~0.39s at 3.6 m/s (1.42m stride) - steady, comfortable running rhythm
-	# Walk: 1 step per ~0.65s at 1.1 m/s (0.72m stride) - relaxed walking cadence
-	var step_interval := 0.72
-	var step_vol := -8.0
+	# Calibrated step stride distance (meters per individual foot contact)
+	var step_interval := 0.62 # Walk stride: 1 step per ~0.56s at 1.1 m/s
+	var step_vol := -13.0
 	var base_pitch := 1.0
 
 	if state == State.RUN:
-		step_interval = 1.42
-		step_vol = -5.5
-		base_pitch = 1.02
+		step_interval = 1.15 # Sprint stride: 1 step per ~0.32s at 3.6 m/s (matches sprint animation footfalls!)
+		step_vol = -7.5
+		base_pitch = 1.06
 	elif state == State.CROUCH:
-		step_interval = 0.45
-		step_vol = -16.0
+		step_interval = 0.38
+		step_vol = -18.0
 		base_pitch = 0.92
 	elif state == State.BRAKING:
-		step_interval = 0.60
-		step_vol = -7.0
+		step_interval = 0.55
+		step_vol = -10.0
 		base_pitch = 0.95
 
 	_footstep_distance += speed_val * delta
 	if _footstep_distance >= step_interval:
 		_footstep_distance = fmod(_footstep_distance, step_interval)
-		_footstep_step_left = not _footstep_step_left
-		var pitch := base_pitch * (0.97 if _footstep_step_left else 1.03) * randf_range(0.98, 1.02)
-		AudioManagerScript.play_footstep(step_vol, pitch)
+		AudioManagerScript.play_footstep(step_vol, base_pitch * randf_range(0.96, 1.04))
 
 
 ## Puts `ground_speed` on the velocity along the character's own facing, leaving

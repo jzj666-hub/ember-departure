@@ -199,8 +199,10 @@ func _scan_weapons() -> void:
 		dir.list_dir_begin()
 		var file_name = dir.get_next()
 		while file_name != "":
-			if not dir.current_is_dir() and file_name.ends_with(".fbx"):
-				fbx_files.append(file_name)
+			var clean_name := file_name.trim_suffix(".import").trim_suffix(".remap")
+			if not dir.current_is_dir() and (clean_name.ends_with(".fbx") or clean_name.ends_with(".glb")):
+				if not fbx_files.has(clean_name):
+					fbx_files.append(clean_name)
 			file_name = dir.get_next()
 	fbx_files.sort()
 	_weapons.append_array(fbx_files)
@@ -1447,7 +1449,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			# Both, or the menu inherits a captured pointer from immersive.
 			_set_immersive(false)
 			_set_looking(false)
-			get_tree().change_scene_to_file(MENU_SCENE)
+			SceneLoader.change_scene(get_tree(), MENU_SCENE, "返回主菜单...")
 		KEY_TAB:
 			_index = (_index + 1) % _characters.size()
 			_spawn_character()

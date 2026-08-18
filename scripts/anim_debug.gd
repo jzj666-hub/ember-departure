@@ -227,7 +227,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and not event.echo:
 		match (event as InputEventKey).keycode:
 			KEY_ESCAPE:
-				get_tree().change_scene_to_file(MENU_SCENE)
+				SceneLoader.change_scene(get_tree(), MENU_SCENE, "返回主菜单...")
 			KEY_F:
 				_focus = Vector3(0.0, focus_height, 0.0)
 				_distance = start_distance

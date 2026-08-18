@@ -715,7 +715,7 @@ func standing_node(pos: Vector3) -> Vector3i:
 	if _nodes.is_empty():
 		return NO_CELL
 
-	var r: float = _cap.radius + 0.15
+	var r: float = _cap.radius + 0.25
 	var min_gx := int(floor(pos.x - r))
 	var max_gx := int(floor(pos.x + r))
 	var min_gz := int(floor(pos.z - r))
@@ -723,6 +723,9 @@ func standing_node(pos: Vector3) -> Vector3i:
 
 	var best := NO_CELL
 	var best_dist_sq := INF
+
+	var best_supported := NO_CELL
+	var best_supported_horiz_sq := INF
 
 	for gx in range(min_gx, max_gx + 1):
 		for gz in range(min_gz, max_gz + 1):
@@ -735,10 +738,20 @@ func standing_node(pos: Vector3) -> Vector3i:
 				if not _nodes.has(c):
 					continue
 				var f_pos := foot(c)
+				var dy := pos.y - f_pos.y
+				if dy >= -0.35 and dy <= 0.65:
+					var h_sq := (pos.x - f_pos.x) * (pos.x - f_pos.x) + (pos.z - f_pos.z) * (pos.z - f_pos.z)
+					if h_sq < best_supported_horiz_sq:
+						best_supported_horiz_sq = h_sq
+						best_supported = c
+
 				var d_sq := pos.distance_squared_to(f_pos)
 				if d_sq < best_dist_sq:
 					best_dist_sq = d_sq
 					best = c
+
+	if best_supported != NO_CELL:
+		return best_supported
 
 	if best != NO_CELL:
 		return best

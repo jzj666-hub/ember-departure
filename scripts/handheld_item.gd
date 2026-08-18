@@ -86,6 +86,20 @@ func trail_anchor(index: int) -> Node3D:
 	return _trail_anchors[index]
 
 
+func blade_base_global() -> Vector3:
+	var anchor := trail_anchor(0)
+	if anchor != null:
+		return anchor.global_position
+	return global_position
+
+
+func blade_tip_global() -> Vector3:
+	var anchor := trail_anchor(1)
+	if anchor != null:
+		return anchor.global_position
+	return global_position + global_transform.basis.y * maxf(_length, 0.5)
+
+
 func _place_trail_anchors() -> void:
 	if _trail_anchors.is_empty() or mesh_instance == null:
 		return

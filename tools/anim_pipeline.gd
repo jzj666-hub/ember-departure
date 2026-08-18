@@ -126,9 +126,11 @@ static func list_sources(dir_path: String) -> PackedStringArray:
 	if dir == null:
 		return out
 	for f in dir.get_files():
-		# Godot exposes imported binaries without the .import suffix; skip strays.
-		if EXTS.has(f.get_extension().to_lower()):
-			out.append(dir_path.path_join(f))
+		var clean_name := f.trim_suffix(".import").trim_suffix(".remap")
+		if EXTS.has(clean_name.get_extension().to_lower()):
+			var p := dir_path.path_join(clean_name)
+			if not out.has(p):
+				out.append(p)
 	out.sort()
 	return out
 

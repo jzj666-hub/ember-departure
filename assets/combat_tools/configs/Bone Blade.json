@@ -23,6 +23,23 @@
 		"walk_clip": "",
 		"run_clip": ""
 	},
+	"trail": {
+		"enabled": true,
+		"base": 0.82,
+		"tip": 0.82,
+		"hue": 46.0,
+		"hue_spread": 25.0,
+		"energy": 2.4,
+		"life": 0.22,
+		"width": 0.95,
+		"particles": 0.85,
+		"light": 0.1,
+		"min_speed": 3.0,
+		"blend_mode": "add",
+		"fade_exponent": 2.0,
+		"ghost_density": 0.0,
+		"texture_mode": "none"
+	},
 	"entries": [
 		{
 			"trigger": "attack",
@@ -38,7 +55,11 @@
 			"duration": 0.6,
 			"lock_move": false,
 			"dash_distance": 0.0,
-			"dash_time": 0.06,
+			"trail": true,
+			"trail_window": [
+				0.0,
+				0.0
+			],
 			"links": [
 				{
 					"trigger": "attack",
@@ -68,7 +89,11 @@
 			"duration": 0.0,
 			"lock_move": true,
 			"dash_distance": 0.0,
-			"dash_time": 0.06,
+			"trail": true,
+			"trail_window": [
+				0.0,
+				0.0
+			],
 			"links": [
 				{
 					"trigger": "heavy",
@@ -89,7 +114,11 @@
 			"duration": 0.0,
 			"lock_move": true,
 			"dash_distance": 0.0,
-			"dash_time": 0.06,
+			"trail": true,
+			"trail_window": [
+				0.0,
+				0.0
+			],
 			"links": []
 		}
 	]

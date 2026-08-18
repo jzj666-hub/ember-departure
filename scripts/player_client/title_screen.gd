@@ -6,10 +6,12 @@ const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const MapDataScript = preload("res://scripts/map_data.gd")
 const MapEditorScript = preload("res://scripts/map_editor.gd")
 const PlaygroundScript = preload("res://scripts/playground.gd")
+const AnimPipelineScript = preload("res://tools/anim_pipeline.gd")
 
 const CHASE_SCENE := "res://scenes/player_client/chase_game.tscn"
 const MAP_EDITOR_SCENE := "res://scenes/map_editor.tscn"
 const PLAYGROUND_SCENE := "res://scenes/playground.tscn"
+const WEAPON_TRIAL_SCENE := "res://scenes/player_client/weapon_trial.tscn"
 const MAIN_GATEWAY_SCENE := "res://scenes/main_menu.tscn"
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 
@@ -20,6 +22,12 @@ var _workshop_ask_dialog: PanelContainer
 var _trial_ask_dialog: PanelContainer
 var _map_list: ItemList
 
+var _bg_viewport: SubViewport
+var _bg_camera: Camera3D
+var _bg_omni: OmniLight3D
+var _bg_character: Character
+var _bg_cam_angle: float = 0.0
+
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -28,6 +36,19 @@ func _ready() -> void:
 	if ResourceLoader.exists(FONT_PATH):
 		_custom_font = load(FONT_PATH) as Font
 	_build_ui()
+
+
+func _process(delta: float) -> void:
+	if _bg_camera != null:
+		_bg_cam_angle += delta * 0.12
+		_bg_camera.position.x = sin(_bg_cam_angle) * 0.45
+		_bg_camera.position.y = 1.25 + sin(_bg_cam_angle * 1.5) * 0.05
+		_bg_camera.position.z = 3.1 + cos(_bg_cam_angle) * 0.25
+		_bg_camera.look_at(Vector3(0.2, 0.95, 0.0))
+
+	if _bg_omni != null:
+		var t := float(Time.get_ticks_msec()) * 0.004
+		_bg_omni.light_energy = 1.7 + sin(t) * 0.35
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -48,14 +69,17 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 			# Return to Mode Selector Gateway
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-			get_tree().change_scene_to_file(MAIN_GATEWAY_SCENE)
+			SceneLoader.change_scene(get_tree(), MAIN_GATEWAY_SCENE, "返回主模式选择门户...")
 
 
 func _build_ui() -> void:
-	var bg := ColorRect.new()
-	bg.set_anchors_preset(PRESET_FULL_RECT)
-	bg.color = Color(0.06, 0.07, 0.09, 1.0)
-	add_child(bg)
+	_build_3d_background()
+
+	var overlay := ColorRect.new()
+	overlay.set_anchors_preset(PRESET_FULL_RECT)
+	overlay.color = Color(0.04, 0.05, 0.07, 0.52)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(overlay)
 
 	var main_box := HBoxContainer.new()
 	main_box.set_anchors_preset(PRESET_FULL_RECT)
@@ -70,8 +94,8 @@ func _build_ui() -> void:
 	main_box.add_child(left_col)
 
 	var icon_tex := TextureRect.new()
-	if ResourceLoader.exists("res://assets/UI_assets/claw-slashes.svg"):
-		icon_tex.texture = load("res://assets/UI_assets/claw-slashes.svg")
+	if ResourceLoader.exists("res://assets/UI_assets/daemon-skull.svg"):
+		icon_tex.texture = load("res://assets/UI_assets/daemon-skull.svg")
 	icon_tex.custom_minimum_size = Vector2(100, 100)
 	icon_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -109,10 +133,10 @@ func _build_ui() -> void:
 	var right_col := VBoxContainer.new()
 	right_col.alignment = BoxContainer.ALIGNMENT_CENTER
 	right_col.custom_minimum_size = Vector2(380, 0)
-	right_col.add_theme_constant_override("separation", 14)
+	right_col.add_theme_constant_override("separation", 12)
 	main_box.add_child(right_col)
 
-	var btn_play := _create_menu_button("开始追缉逃生 (Pursuit Challenge)", "res://assets/UI_assets/run.svg", Color(0.9, 0.25, 0.2))
+	var btn_play := _create_menu_button("开始追缉逃生 (Pursuit Challenge)", "res://assets/UI_assets/claw-slashes.svg", Color(0.9, 0.25, 0.2))
 	btn_play.pressed.connect(_open_map_selector)
 	right_col.add_child(btn_play)
 
@@ -121,6 +145,13 @@ func _build_ui() -> void:
 		_trial_ask_dialog.visible = true
 	)
 	right_col.add_child(btn_trial)
+
+	var btn_weapon := _create_menu_button("兵器试炼与连招 (Weapon Armory)", "res://assets/UI_assets/winged-sword.svg", Color(0.95, 0.45, 0.2))
+	btn_weapon.pressed.connect(func() -> void:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		SceneLoader.change_scene(get_tree(), WEAPON_TRIAL_SCENE, "正在装备神兵与加载试炼场...")
+	)
+	right_col.add_child(btn_weapon)
 
 	var btn_editor := _create_menu_button("地图工坊 (Map Studio)", "res://assets/UI_assets/cubes.svg", Color(0.2, 0.65, 0.95))
 	btn_editor.pressed.connect(func() -> void:
@@ -135,7 +166,7 @@ func _build_ui() -> void:
 	var btn_gateway := _create_menu_button("返回主选择门户 (Back to Gateway)", "res://assets/UI_assets/gear-hammer.svg", Color(0.5, 0.55, 0.65))
 	btn_gateway.pressed.connect(func() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		get_tree().change_scene_to_file(MAIN_GATEWAY_SCENE)
+		SceneLoader.change_scene(get_tree(), MAIN_GATEWAY_SCENE, "返回主模式选择门户...")
 	)
 	right_col.add_child(btn_gateway)
 
@@ -242,7 +273,7 @@ func _build_guide_dialog() -> void:
 	vbox.add_child(rule_box)
 
 	var rule_lbl := Label.new()
-	rule_lbl.text = "【对决规则】\n1. 开局拥有 15 秒逃生时间，追缉者原地待命。\n2. 倒计时结束后追缉者全速出动，接近被追方 1 格以内判定追缉者获胜！\n3. 利用复杂高低差地形与跳跃攀爬拉开距离，争取更长生存时间！"
+	rule_lbl.text = "【对决规则】\n1. 开局拥有 15 秒逃生时间，追缉者原地待命。\n2. 倒计时结束后追缉者全速出动，追缉限时 2 分钟！\n3. 追缉者接近至 1.5 米以内判定捕获；坚持 2 分钟未被捕获即可逃生成功！"
 	if _custom_font != null:
 		rule_lbl.add_theme_font_override("font", _custom_font)
 	rule_lbl.add_theme_font_size_override("font_size", 14)
@@ -373,7 +404,7 @@ func _on_start_game_pressed() -> void:
 	var chase_script = load("res://scripts/player_client/chase_game.gd")
 	if chase_script != null:
 		chase_script.next_map_path = map_path
-	get_tree().change_scene_to_file(CHASE_SCENE)
+	SceneLoader.change_scene(get_tree(), CHASE_SCENE, "正在载入追缉对决战场与AI寻路网格...")
 
 
 func _open_guide_dialog() -> void:
@@ -447,7 +478,7 @@ func _build_workshop_ask_dialog() -> void:
 		_workshop_ask_dialog.visible = false
 		MapEditorScript.tutorial_on_start = true
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		get_tree().change_scene_to_file(MAP_EDITOR_SCENE)
+		SceneLoader.change_scene(get_tree(), MAP_EDITOR_SCENE, "正在载入地图工坊教学...")
 	)
 	btn_box.add_child(tut_btn)
 
@@ -461,7 +492,7 @@ func _build_workshop_ask_dialog() -> void:
 		_workshop_ask_dialog.visible = false
 		MapEditorScript.tutorial_on_start = false
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		get_tree().change_scene_to_file(MAP_EDITOR_SCENE)
+		SceneLoader.change_scene(get_tree(), MAP_EDITOR_SCENE, "正在载入地图工坊创作空间...")
 	)
 	btn_box.add_child(skip_btn)
 
@@ -532,9 +563,10 @@ func _build_trial_ask_dialog() -> void:
 	tut_btn.pressed.connect(func() -> void:
 		_trial_ask_dialog.visible = false
 		PlaygroundScript.start_with_tutorial = true
+		PlaygroundScript.show_debug_hud = false
 		PlaygroundScript.return_scene = "res://scenes/player_client/title_screen.tscn"
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		get_tree().change_scene_to_file(PLAYGROUND_SCENE)
+		SceneLoader.change_scene(get_tree(), PLAYGROUND_SCENE, "正在载入身法沙盒教学...")
 	)
 	btn_box.add_child(tut_btn)
 
@@ -547,8 +579,189 @@ func _build_trial_ask_dialog() -> void:
 	skip_btn.pressed.connect(func() -> void:
 		_trial_ask_dialog.visible = false
 		PlaygroundScript.start_with_tutorial = false
+		PlaygroundScript.show_debug_hud = false
 		PlaygroundScript.return_scene = "res://scenes/player_client/title_screen.tscn"
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-		get_tree().change_scene_to_file(PLAYGROUND_SCENE)
+		SceneLoader.change_scene(get_tree(), PLAYGROUND_SCENE, "正在载入身法自由试玩沙盒...")
 	)
 	btn_box.add_child(skip_btn)
+
+
+func _build_3d_background() -> void:
+	var vp_container := SubViewportContainer.new()
+	vp_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vp_container.stretch = true
+	vp_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(vp_container)
+
+	_bg_viewport = SubViewport.new()
+	_bg_viewport.own_world_3d = true
+	_bg_viewport.handle_input_locally = false
+	_bg_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vp_container.add_child(_bg_viewport)
+
+	var sky_mat := ProceduralSkyMaterial.new()
+	sky_mat.sky_top_color = Color(0.08, 0.11, 0.18)
+	sky_mat.sky_horizon_color = Color(0.28, 0.18, 0.14)
+	sky_mat.ground_bottom_color = Color(0.04, 0.05, 0.07)
+	sky_mat.ground_horizon_color = Color(0.12, 0.14, 0.18)
+
+	var sky := Sky.new()
+	sky.sky_material = sky_mat
+
+	var env := Environment.new()
+	env.background_mode = Environment.BG_SKY
+	env.sky = sky
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_energy = 0.65
+	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	env.glow_enabled = true
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	env.glow_intensity = 1.0
+	env.glow_bloom = 0.25
+	env.fog_enabled = true
+	env.fog_light_color = Color(0.10, 0.12, 0.16)
+	env.fog_density = 0.015
+
+	var env_node := WorldEnvironment.new()
+	env_node.environment = env
+	_bg_viewport.add_child(env_node)
+
+	var key_light := DirectionalLight3D.new()
+	key_light.light_color = Color(1.0, 0.78, 0.48)
+	key_light.light_energy = 2.4
+	key_light.shadow_enabled = true
+	key_light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-28.0), deg_to_rad(145.0), 0.0))
+	_bg_viewport.add_child(key_light)
+
+	var fill_light := DirectionalLight3D.new()
+	fill_light.light_color = Color(0.35, 0.65, 0.95)
+	fill_light.light_energy = 0.7
+	fill_light.shadow_enabled = false
+	fill_light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-20.0), deg_to_rad(-45.0), 0.0))
+	_bg_viewport.add_child(fill_light)
+
+	_bg_omni = OmniLight3D.new()
+	_bg_omni.light_color = Color(1.0, 0.45, 0.15)
+	_bg_omni.light_energy = 1.8
+	_bg_omni.omni_range = 6.0
+	_bg_omni.position = Vector3(0.4, 0.4, 0.2)
+	_bg_viewport.add_child(_bg_omni)
+
+	var dais := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 2.4
+	cyl.bottom_radius = 2.6
+	cyl.height = 0.3
+	var dais_mat := StandardMaterial3D.new()
+	dais_mat.albedo_color = Color(0.12, 0.14, 0.18)
+	dais_mat.roughness = 0.7
+	dais_mat.metallic = 0.3
+	dais.mesh = cyl
+	dais.material_override = dais_mat
+	dais.position = Vector3(0.3, -0.15, 0.0)
+	_bg_viewport.add_child(dais)
+
+	var ring_mesh := ImmediateMesh.new()
+	ring_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	var segs := 36
+	for i in range(segs + 1):
+		var ang := TAU * float(i) / float(segs)
+		var vx := cos(ang) * 2.38
+		var vz := sin(ang) * 2.38
+		ring_mesh.surface_set_color(Color(1.0, 0.5, 0.15, 0.85))
+		ring_mesh.surface_add_vertex(Vector3(vx, 0.005, vz))
+	ring_mesh.surface_end()
+
+	var ring_mat := StandardMaterial3D.new()
+	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring_mat.vertex_color_use_as_albedo = true
+	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
+	var ring_inst := MeshInstance3D.new()
+	ring_inst.mesh = ring_mesh
+	ring_inst.material_override = ring_mat
+	dais.add_child(ring_inst)
+
+	var particles := CPUParticles3D.new()
+	particles.amount = 50
+	particles.lifetime = 4.0
+	particles.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	particles.emission_box_extents = Vector3(2.5, 0.1, 2.5)
+	particles.position = Vector3(0.3, 0.05, 0.0)
+	particles.direction = Vector3(0.0, 1.0, 0.0)
+	particles.spread = 30.0
+	particles.gravity = Vector3(0.0, 0.25, 0.0)
+	particles.initial_velocity_min = 0.5
+	particles.initial_velocity_max = 1.4
+	particles.scale_amount_min = 0.04
+	particles.scale_amount_max = 0.10
+	particles.color = Color(1.0, 0.60, 0.20, 0.95)
+
+	var p_mesh := QuadMesh.new()
+	p_mesh.size = Vector2(0.06, 0.06)
+	var p_mat := StandardMaterial3D.new()
+	p_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	p_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	p_mat.albedo_color = Color(1.0, 0.65, 0.25, 0.95)
+	p_mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	particles.mesh = p_mesh
+	particles.material_override = p_mat
+	_bg_viewport.add_child(particles)
+
+	var char_scenes := [
+		"res://assets/characters/hero/hero.tscn",
+		"res://assets/characters/hero_1/hero_1.tscn",
+		"res://assets/characters/hero_2/hero_2.tscn",
+		"res://assets/characters/hero_3/hero_3.tscn",
+	]
+	var loaded_scene: PackedScene = null
+	for p in char_scenes:
+		if ResourceLoader.exists(p):
+			loaded_scene = load(p) as PackedScene
+			if loaded_scene != null:
+				break
+
+	if loaded_scene != null:
+		var char_inst := loaded_scene.instantiate() as Character
+		if char_inst != null:
+			_bg_character = char_inst
+			_bg_character.position = Vector3(0.3, 0.0, 0.0)
+			_bg_character.rotation.y = -0.45
+			_bg_viewport.add_child(_bg_character)
+			if _bg_character.is_node_ready():
+				_play_bg_anim(_bg_character)
+			else:
+				_bg_character.ready.connect(func() -> void: _play_bg_anim(_bg_character))
+
+	_bg_camera = Camera3D.new()
+	_bg_camera.fov = 48.0
+	_bg_camera.near = 0.05
+	_bg_camera.current = true
+	_bg_viewport.add_child(_bg_camera)
+	_bg_camera.look_at_from_position(Vector3(0.0, 1.25, 3.2), Vector3(0.2, 0.95, 0.0))
+
+
+func _play_bg_anim(character: Character) -> void:
+	if character == null:
+		return
+	if character.player == null:
+		character.player = AnimPipelineScript.first_of_class(character, "AnimationPlayer") as AnimationPlayer
+		character.skeleton = AnimPipelineScript.first_of_class(character, "Skeleton3D") as Skeleton3D
+		character.attach_libraries()
+
+	var candidate_anims := [
+		"idle_fold_arms",
+		"sword_idle",
+		"dance",
+		"idle",
+	]
+	for anim_name in candidate_anims:
+		if character.has_clip(anim_name):
+			character.play(anim_name)
+			var resolved_name := character.resolve(anim_name)
+			if character.player != null and character.player.has_animation(resolved_name):
+				var anim := character.player.get_animation(resolved_name)
+				if anim != null:
+					anim.loop_mode = Animation.LOOP_LINEAR
+			return

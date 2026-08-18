@@ -18,6 +18,7 @@ const CLIMB_STEP := 1.4
 
 static var start_with_tutorial: bool = false
 static var return_scene: String = "res://scenes/main_menu.tscn"
+static var show_debug_hud: bool = true
 
 var _characters: Array = []
 var _index := 0
@@ -26,6 +27,7 @@ var _camera: Camera3D
 var _visual: Node3D
 var _custom_font: Font = null
 
+var _debug_panel: PanelContainer
 var _state_label: Label
 var _hint_label: Label
 
@@ -354,16 +356,17 @@ func _build_hud() -> void:
 	_hud_layer.name = "HUD"
 	add_child(_hud_layer)
 
-	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	panel.position = Vector2(12, 12)
-	panel.custom_minimum_size = Vector2(300, 0)
-	panel.modulate = Color(1, 1, 1, 0.9)
-	_hud_layer.add_child(panel)
+	_debug_panel = PanelContainer.new()
+	_debug_panel.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_debug_panel.position = Vector2(12, 12)
+	_debug_panel.custom_minimum_size = Vector2(300, 0)
+	_debug_panel.modulate = Color(1, 1, 1, 0.9)
+	_debug_panel.visible = show_debug_hud and (return_scene != "res://scenes/player_client/title_screen.tscn")
+	_hud_layer.add_child(_debug_panel)
 
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
-	panel.add_child(box)
+	_debug_panel.add_child(box)
 
 	_state_label = Label.new()
 	_state_label.add_theme_font_size_override("font_size", 13)
@@ -757,7 +760,7 @@ func _process(delta: float) -> void:
 	if _tutorial_active:
 		_update_tutorial_state(delta)
 
-	if _state_label == null or _player == null:
+	if _debug_panel == null or not _debug_panel.visible or _state_label == null or _player == null:
 		return
 	var mode_str := "[第一视角]" if (_camera != null and bool(_camera.get("is_first_person"))) else "[第三视角]"
 	_state_label.text = "%s %s   %.2f m/s   高度 %.2f m\n站立时鼠标只转视角；一移动，角色转向视角方向" % [
@@ -774,7 +777,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_tutorial_complete_dialog.visible = false
 				return
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-			get_tree().change_scene_to_file(return_scene)
+			SceneLoader.change_scene(get_tree(), return_scene)
 		KEY_TAB:
 			_index = (_index + 1) % _characters.size()
 			_spawn_character()

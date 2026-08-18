@@ -3,23 +3,42 @@
 	"note": "",
 	"grip": {
 		"offset": [
-			-0.03,
-			0.055,
-			0.0
+			-0.395,
+			0.221,
+			0.098
 		],
 		"rot_deg": [
-			0.0,
-			-6.0,
-			-78.0
+			-168.0,
+			3.0,
+			-72.0
 		],
-		"scale": 0.505,
+		"scale": 0.63,
 		"flip": false,
 		"socket": "right_hand"
 	},
 	"stance": {
-		"idle_clip": "idle",
+		"idle_clip": "sword_idle",
 		"blend": 1.0,
-		"filter_bone": "Spine"
+		"filter_bone": "Spine",
+		"walk_clip": "",
+		"run_clip": ""
+	},
+	"trail": {
+		"enabled": true,
+		"base": 0.57,
+		"tip": 1.0,
+		"hue": 91.0,
+		"hue_spread": 46.0,
+		"energy": 0.8,
+		"life": 0.21,
+		"width": 1.05,
+		"particles": 0.35,
+		"light": 2.7,
+		"min_speed": 2.5,
+		"blend_mode": "add",
+		"fade_exponent": 1.3,
+		"ghost_density": 1.0,
+		"texture_mode": "none"
 	},
 	"entries": [
 		{
@@ -35,18 +54,47 @@
 			"flatten": "GROUND",
 			"duration": 0.0,
 			"lock_move": true,
-			"slide_speed": 0.0,
+			"dash_distance": 0.0,
+			"trail": true,
+			"trail_window": [
+				0.0,
+				0.0
+			],
 			"links": [
 				{
 					"trigger": "attack",
 					"window": [
-						0.3,
-						1.2
+						1.0,
+						1.55
 					],
 					"buffer": true,
 					"to": "slash_1"
+				},
+				{
+					"trigger": "heavy",
+					"window": [
+						1.0,
+						1.55
+					],
+					"buffer": true,
+					"to": "heavy_1"
 				}
 			]
+		},
+		{
+			"id": "heavy_1",
+			"clip": "sword_heavy_combo",
+			"rate": 0.7,
+			"flatten": "GROUND",
+			"duration": 0.0,
+			"lock_move": true,
+			"dash_distance": 0.0,
+			"trail": true,
+			"trail_window": [
+				0.0,
+				0.0
+			],
+			"links": []
 		}
 	]
 }

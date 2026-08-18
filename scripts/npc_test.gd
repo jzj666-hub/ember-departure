@@ -613,7 +613,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				return
 			KEY_ESCAPE:
 				Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-				get_tree().change_scene_to_file(MENU_SCENE)
+				SceneLoader.change_scene(get_tree(), MENU_SCENE, "返回主菜单...")
 				return
 			KEY_TAB:
 				_index = (_index + 1) % _characters.size()
