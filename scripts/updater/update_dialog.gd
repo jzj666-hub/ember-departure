@@ -5,15 +5,11 @@ extends Control
 signal dismissed()
 signal update_finished(success: bool)
 
-const AudioManagerScript = preload("res://scripts/audio_manager.gd")
-const UpdaterScript = preload("res://scripts/updater/updater.gd")
-
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 const ICON_PATH := "res://assets/UI_assets/winged-sword.svg"
 const OPEN_SOUND_PATH := "res://assets/voice/RPGsounds_Kenney/OGG/bookOpen.ogg"
 const CLOSE_SOUND_PATH := "res://assets/voice/RPGsounds_Kenney/OGG/bookClose.ogg"
 const SUCCESS_SOUND_PATH := "res://assets/voice/RPGsounds_Kenney/OGG/handleCoins.ogg"
-
 
 var _custom_font: Font = null
 var _panel: PanelContainer
@@ -41,9 +37,8 @@ func _ready() -> void:
 
 func setup_data(remote_info: Dictionary) -> void:
 	_remote_info = remote_info
-	_local_info = UpdaterScript.get_local_version_info()
+	_local_info = Updater.get_local_version_info()
 	_refresh_content()
-
 
 
 func _build_ui() -> void:
@@ -183,8 +178,6 @@ func _build_ui() -> void:
 	_style_dark_button(_skip_btn)
 	_skip_btn.pressed.connect(_on_skip_pressed)
 	_btn_box.add_child(_skip_btn)
-	_refresh_content()
-
 
 
 func _style_gold_button(btn: Button) -> void:
@@ -223,16 +216,11 @@ func _style_dark_button(btn: Button) -> void:
 
 
 func _refresh_content() -> void:
-	if _status_lbl == null or _panel == null:
-		return
-	if _local_info.is_empty():
-		_local_info = UpdaterScript.get_local_version_info()
 	var local_v := str(_local_info.get("version", "v1.0.0"))
 	var remote_v := str(_remote_info.get("version", "最新版本"))
 	_status_lbl.text = "当前本地版本: %s    ➔    🔥 Gitee 最新版本: %s" % [local_v, remote_v]
 
 	var notes_container := _panel.find_child("NotesContainer", true, false) as VBoxContainer
-
 	if notes_container != null:
 		for c in notes_container.get_children():
 			c.queue_free()
@@ -279,7 +267,7 @@ func _animate_in() -> void:
 	
 	if ResourceLoader.exists(OPEN_SOUND_PATH):
 		var s := load(OPEN_SOUND_PATH) as AudioStream
-		AudioManagerScript.play_sound(s, 0.0)
+		AudioManager.play_sound(s, 0.0)
 
 
 func _animate_out(on_done: Callable = Callable()) -> void:
@@ -302,7 +290,7 @@ func _on_skip_pressed() -> void:
 	dismissed.emit()
 	if ResourceLoader.exists(CLOSE_SOUND_PATH):
 		var s := load(CLOSE_SOUND_PATH) as AudioStream
-		AudioManagerScript.play_sound(s, 0.0)
+		AudioManager.play_sound(s, 0.0)
 	_animate_out()
 
 
@@ -318,7 +306,7 @@ func _on_pull_pressed() -> void:
 		prog_lbl.text = "⚡ 正在从 Gitee 拉取最新代码与资产..."
 		prog_lbl.modulate = Color(0.3, 0.9, 1.0)
 
-	UpdaterScript.pull_latest_code(func(success: bool, output: String) -> void:
+	Updater.pull_latest_code(func(success: bool, output: String) -> void:
 		_on_pull_result(success, output)
 	)
 
@@ -331,7 +319,7 @@ func _on_pull_result(success: bool, output: String) -> void:
 			prog_lbl.modulate = Color(0.3, 1.0, 0.4)
 		if ResourceLoader.exists(SUCCESS_SOUND_PATH):
 			var s := load(SUCCESS_SOUND_PATH) as AudioStream
-			AudioManagerScript.play_sound(s, 1.0)
+			AudioManager.play_sound(s, 1.0)
 		
 		# Wait 1.2s and reload scene
 		var tree := get_tree()
@@ -348,4 +336,3 @@ func _on_pull_result(success: bool, output: String) -> void:
 		_btn_box.visible = true
 		_pull_btn.text = "🔄 重新拉取"
 		_skip_btn.text = "⏩ 忽略并继续"
-

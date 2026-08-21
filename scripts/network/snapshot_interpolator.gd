@@ -1,9 +1,10 @@
 class_name SnapshotInterpolator
 extends RefCounted
-## Jitter buffer and snapshot interpolator for smoothing network remote entity transforms.
+## Jitter buffer and snapshot interpolator for smoothing network remote entity transforms and animations.
+## Uses local arrival timestamps to prevent cross-machine clock drift.
 
 const BUFFER_MAX_SIZE := 32
-const TARGET_DELAY_SECONDS := 0.080
+const TARGET_DELAY_SECONDS := 0.060 # 60ms smooth buffer
 
 var _buffer: Array[Dictionary] = []
 var _target_body: CharacterBody3D = null
@@ -14,13 +15,18 @@ var _last_rendered_yaw: float = 0.0
 func setup(body: CharacterBody3D) -> void:
 	_target_body = body
 	_buffer.clear()
-	if _target_body != null:
+	if _target_body != null and _target_body.is_inside_tree():
 		_last_rendered_pos = _target_body.global_position
 		_last_rendered_yaw = _target_body.rotation.y
 
 
 func push_snapshot(snap: Dictionary) -> void:
-	_buffer.append(snap)
+	if _target_body == null:
+		return
+	# Tag with local arrival time to eliminate any cross-machine clock disparity
+	var local_snap := snap.duplicate()
+	local_snap["time"] = float(Time.get_ticks_msec()) * 0.001
+	_buffer.append(local_snap)
 	if _buffer.size() > BUFFER_MAX_SIZE:
 		_buffer.pop_front()
 
@@ -41,7 +47,7 @@ func update_interpolation(delta: float) -> void:
 		_apply_state(snap.get("pos", _target_body.global_position),
 			snap.get("yaw", _target_body.rotation.y),
 			snap.get("vel", Vector3.ZERO),
-			snap.get("anim", ""),
+			snap.get("action", ""),
 			snap.get("state", 0),
 			delta)
 		return
@@ -60,7 +66,7 @@ func update_interpolation(delta: float) -> void:
 		_apply_state(oldest.get("pos", _target_body.global_position),
 			oldest.get("yaw", _target_body.rotation.y),
 			oldest.get("vel", Vector3.ZERO),
-			oldest.get("anim", ""),
+			oldest.get("action", ""),
 			oldest.get("state", 0),
 			delta)
 		return
@@ -70,7 +76,7 @@ func update_interpolation(delta: float) -> void:
 		_apply_state(snap.get("pos", _target_body.global_position),
 			snap.get("yaw", _target_body.rotation.y),
 			snap.get("vel", Vector3.ZERO),
-			snap.get("anim", ""),
+			snap.get("action", ""),
 			snap.get("state", 0),
 			delta)
 		return
@@ -94,27 +100,31 @@ func update_interpolation(delta: float) -> void:
 	var v1: Vector3 = s1.get("vel", v0)
 	var lerped_vel := v0.lerp(v1, alpha)
 
-	var anim_name: String = str(s1.get("anim", s0.get("anim", "")))
+	var action_name: String = str(s1.get("action", s0.get("action", "")))
 	var char_state: int = int(s1.get("state", s0.get("state", 0)))
 
-	_apply_state(lerped_pos, lerped_yaw, lerped_vel, anim_name, char_state, delta)
+	_apply_state(lerped_pos, lerped_yaw, lerped_vel, action_name, char_state, delta)
 
-	while _buffer.size() > 2 and _buffer[0].get("time", 0.0) < render_time - 0.5:
+	while _buffer.size() > 2 and _buffer[0].get("time", 0.0) < render_time - 0.4:
 		_buffer.pop_front()
 
 
-func _apply_state(pos: Vector3, yaw: float, vel: Vector3, anim: String, state_val: int, delta: float) -> void:
-	if _target_body == null:
+func _apply_state(pos: Vector3, yaw: float, vel: Vector3, action: String, state_val: int, delta: float) -> void:
+	if _target_body == null or not _target_body.is_inside_tree():
 		return
 
 	var current_pos := _target_body.global_position
 	if current_pos.distance_to(pos) > 4.0:
 		_target_body.global_position = pos
 	else:
-		_target_body.global_position = current_pos.lerp(pos, 1.0 - exp(-delta * 24.0))
+		_target_body.global_position = current_pos.lerp(pos, 1.0 - exp(-delta * 28.0))
 
-	_target_body.rotation.y = lerp_angle(_target_body.rotation.y, yaw, 1.0 - exp(-delta * 20.0))
+	_target_body.rotation.y = lerp_angle(_target_body.rotation.y, yaw, 1.0 - exp(-delta * 22.0))
 	_target_body.velocity = vel
 
-	if not anim.is_empty() and _target_body.has_method("force_network_anim"):
-		_target_body.force_network_anim(anim, state_val)
+	if not action.is_empty() and _target_body.has_method("force_network_anim"):
+		_target_body.force_network_anim(action, state_val)
+
+	# Drive procedural locomotion blend animation
+	if _target_body.has_method("drive_network_step"):
+		_target_body.drive_network_step(delta)

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://skill_vfx_lab_scene_01"]
+
+[ext_resource type="Script" path="res://scripts/skill_vfx_lab.gd" id="1_skilllab"]
+
+[node name="SkillVfxLab" type="Node3D"]
+script = ExtResource("1_skilllab")

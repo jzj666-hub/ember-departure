@@ -43,6 +43,9 @@ var _swallow_first_motion := true
 
 func _ready() -> void:
 	pitch = travel_pitch
+	# The camera is repositioned every render frame in _process; with physics
+	# interpolation enabled this triggers noisy "outside physics process" warnings.
+	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	# Captured, not confined: the point of this camera is that the pointer never
 	# leaves it. The playground releases it on Esc.
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

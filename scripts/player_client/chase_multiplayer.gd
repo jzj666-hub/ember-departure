@@ -3,6 +3,7 @@ extends Node3D
 ## Supports dual-side Tab tactical commander A* pathfinding, 30Hz snapshot synchronization, and jitter buffer interpolation.
 
 const NavGridScript = preload("res://scripts/nav_grid.gd")
+const AnimPipelineScript = preload("res://tools/anim_pipeline.gd")
 const BlockRegistryScript = preload("res://scripts/block_registry.gd")
 const MapDataScript = preload("res://scripts/map_data.gd")
 const CharacterPipelineScript = preload("res://tools/character_pipeline.gd")
@@ -70,7 +71,7 @@ var _local_beacon: MeshInstance3D
 var _hud_canvas: CanvasLayer
 var _crosshair: Control
 var _banner_panel: PanelContainer
-var _banner_style: StyleBoxTexture
+var _banner_style: StyleBoxFlat
 var _banner_icon: TextureRect
 var _banner_title: Label
 var _banner_sub: Label
@@ -111,6 +112,11 @@ class Crosshair extends Control:
 			draw_line(c + Vector2(0, 3), c + Vector2(0, 10), col, w)
 
 
+var _local_scene_ready := false
+var _remote_scene_ready := false
+var _has_started_countdown := false
+
+
 func _ready() -> void:
 	AudioManagerScript.init_pool(self)
 	if ResourceLoader.exists(FONT_PATH):
@@ -126,9 +132,11 @@ func _ready() -> void:
 	_build_characters()
 	_build_hud()
 
-	var map_path := NetworkManager.selected_map_path
-	if not map_path.is_empty() and FileAccess.file_exists(map_path):
-		_load_map_data(map_path)
+	var map_data: Dictionary = NetworkManager.selected_map_data
+	if not map_data.is_empty():
+		_apply_map_data(map_data)
+	elif not NetworkManager.selected_map_path.is_empty() and FileAccess.file_exists(NetworkManager.selected_map_path):
+		_apply_map_data(MapDataScript.load_map_from_file(NetworkManager.selected_map_path))
 	else:
 		_clear_all_blocks()
 		_nav.clear_special_paths()
@@ -137,7 +145,14 @@ func _ready() -> void:
 			_nav.set_capability(_local_body)
 
 	_reset_match_positions()
-	_start_prepare_countdown()
+
+	_local_scene_ready = true
+	if multiplayer.has_multiplayer_peer():
+		rpc("rpc_peer_scene_ready")
+		if NetworkManager.is_host and _remote_scene_ready and not _has_started_countdown:
+			_host_trigger_countdown()
+	else:
+		_start_prepare_countdown()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -150,6 +165,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_commander_mode()
 			get_viewport().set_input_as_handled()
 			return
+
+	if _state == State.MATCH_OVER and _stage_modal != null and _stage_modal.visible:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			_is_stage_dragging = event.pressed
+		elif event is InputEventMouseMotion and _is_stage_dragging:
+			_stage_target_yaw += event.relative.x * 0.008
 
 	if not _commander_mode:
 		return
@@ -180,6 +201,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	if _state == State.MATCH_OVER and _game_over_hero_node != null and is_instance_valid(_game_over_hero_node):
+		_stage_current_yaw = lerp_angle(_stage_current_yaw, _stage_target_yaw, delta * 12.0)
+		_game_over_hero_node.rotation.y = _stage_current_yaw
+
 	if _commander_mode:
 		_drive_commander_camera(delta)
 		_cast_crosshair()
@@ -199,9 +224,10 @@ func _physics_process(delta: float) -> void:
 				_last_countdown_voice = cur_sec
 				AudioManagerScript.play_countdown(cur_sec, true)
 
-			# Keep Chaser stationary during countdown
+			# Keep Chaser firmly locked at spawn during countdown
 			if NetworkManager.local_role == NetworkManager.Role.CHASER:
 				if _local_body != null:
+					_local_body.global_position = _chaser_spawn
 					_local_body.velocity = Vector3.ZERO
 				if _local_npc_intent != null:
 					_local_npc_intent.clear_target()
@@ -243,9 +269,13 @@ func _send_local_snapshot() -> void:
 		"pos": _local_body.global_position,
 		"yaw": _local_body.rotation.y,
 		"vel": _local_body.velocity,
-		"anim": "",
+		"action": "",
 		"state": int(_local_body.state)
 	}
+	if NetworkManager.is_host:
+		snap["host_esc_timer"] = _escape_timer
+		snap["host_surv_time"] = _survival_time
+		snap["host_state"] = int(_state)
 	rpc("rpc_receive_snapshot", snap)
 
 
@@ -253,6 +283,30 @@ func _send_local_snapshot() -> void:
 func rpc_receive_snapshot(snap: Dictionary) -> void:
 	if _remote_interpolator != null:
 		_remote_interpolator.push_snapshot(snap)
+	if not NetworkManager.is_host and snap.has("host_esc_timer"):
+		var h_state: int = int(snap.get("host_state", int(_state)))
+		if _state != State.MATCH_OVER:
+			_state = h_state as State
+		_escape_timer = snap.get("host_esc_timer", _escape_timer)
+		_survival_time = snap.get("host_surv_time", _survival_time)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_peer_scene_ready() -> void:
+	_remote_scene_ready = true
+	if NetworkManager.is_host and _local_scene_ready and not _has_started_countdown:
+		_host_trigger_countdown()
+
+
+func _host_trigger_countdown() -> void:
+	_has_started_countdown = true
+	rpc("rpc_start_prepare_countdown", ESCAPE_COUNTDOWN_TIME)
+
+
+@rpc("authority", "call_local", "reliable")
+func rpc_start_prepare_countdown(duration: float) -> void:
+	_escape_timer = duration
+	_start_prepare_countdown()
 
 
 @rpc("authority", "call_local", "reliable")
@@ -268,23 +322,9 @@ func rpc_match_over(winning_role_val: int, reason_text: String) -> void:
 	else:
 		AudioManagerScript.play_lose(true)
 
-	if _game_over_title != null:
-		_game_over_title.text = "🏆 胜 利 ！" if i_win else "💀 战 败 ！"
-		_game_over_title.modulate = Color(0.3, 1.0, 0.5) if i_win else Color(1.0, 0.35, 0.35)
-
-	if _game_over_desc != null:
-		_game_over_desc.text = reason_text
-		_game_over_desc.modulate = Color(0.9, 0.9, 0.9)
-
-	var m := int(_survival_time) / 60
-	var s := fmod(_survival_time, 60.0)
-	if _game_over_time_lbl != null:
-		_game_over_time_lbl.text = "对决持续时间: %02d:%05.2f" % [m, s]
-		_game_over_time_lbl.modulate = Color(1.0, 0.85, 0.3)
-
-	_game_over_dialog.visible = true
 	_banner_panel.visible = false
 	_local_beacon.visible = false
+	_show_stage_one_report(i_win, reason_text)
 
 
 func _start_prepare_countdown() -> void:
@@ -292,10 +332,12 @@ func _start_prepare_countdown() -> void:
 	_escape_timer = ESCAPE_COUNTDOWN_TIME
 	_survival_time = 0.0
 	_last_countdown_voice = -1
-	_game_over_dialog.visible = false
+	if _report_modal != null:
+		_report_modal.visible = false
+	if _stage_modal != null:
+		_stage_modal.visible = false
 	_banner_panel.visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	AudioManagerScript.play_countdown(5, true)
 
 
 func _start_active_chase() -> void:
@@ -388,17 +430,22 @@ func _build_characters() -> void:
 	_remote_body = PlayerControllerScript.new()
 	_remote_body.name = "RemotePlayer"
 	_remote_body.position = _chaser_spawn if NetworkManager.local_role == NetworkManager.Role.RUNNER else _runner_spawn
-	_remote_interpolator = SnapshotInterpolatorScript.new()
-	_remote_interpolator.setup(_remote_body)
 	add_child(_remote_body)
 	_spawn_visual(_remote_body, chars, remote_char_idx, false)
+	_remote_interpolator = SnapshotInterpolatorScript.new()
+	_remote_interpolator.setup(_remote_body)
 
 
 func _spawn_visual(body: CharacterBody3D, chars: Array, char_idx: int, is_local: bool) -> void:
-	if chars.is_empty():
-		return
-	var entry: Dictionary = chars[clamp(char_idx, 0, chars.size() - 1)]
-	var scene := load(entry.scene) as PackedScene
+	var chosen_path := NetworkManager.local_hero_scene if is_local else NetworkManager.remote_hero_scene
+	var scene: PackedScene = null
+	if not chosen_path.is_empty() and ResourceLoader.exists(chosen_path):
+		scene = load(chosen_path) as PackedScene
+
+	if scene == null and not chars.is_empty():
+		var entry: Dictionary = chars[clamp(char_idx, 0, chars.size() - 1)]
+		scene = load(entry.scene) as PackedScene
+
 	if scene == null:
 		return
 	var visual: Node3D = scene.instantiate()
@@ -606,7 +653,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.8
+	env.ambient_light_energy = 0.5
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 
@@ -616,7 +663,7 @@ func _build_environment() -> void:
 
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-45.0, 35.0, 0.0)
-	sun.light_energy = 1.3
+	sun.light_energy = 1.1
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true
@@ -665,27 +712,30 @@ func _build_ground() -> void:
 	add_child(node)
 
 
-func _load_map_data(path: String) -> void:
-	var data := MapDataScript.load_map_from_file(path)
+func _apply_map_data(data: Dictionary) -> void:
 	if data.is_empty():
 		return
 	_clear_all_blocks()
 	_nav.clear_special_paths()
 
-	var blocks_data: Array = data.get("blocks", [])
-	for b in blocks_data:
-		var pos_arr: Array = b.get("pos", [0, 0, 0])
-		var grid_pos := Vector3i(int(pos_arr[0]), int(pos_arr[1]), int(pos_arr[2]))
-		var block_id: String = str(b.get("id", "stone"))
-		var size_idx: int = int(b.get("size", 1))
-		var mat_idx: int = int(b.get("mat", 0))
+	var sp: Array = data.get("spawn_pos", [0.5, 0.2, 0.5])
+	if sp.size() >= 3:
+		_runner_spawn = Vector3(sp[0], sp[1], sp[2])
 
-		var inst: BlockRegistry.BlockInstance = BlockRegistryScript.create_block(block_id, grid_pos, size_idx, mat_idx)
-		if inst != null and inst.body_node != null:
-			add_child(inst.body_node)
-			_blocks[grid_pos] = inst
-			_cell_to_block_id[grid_pos] = block_id
-			for cell in inst.occupied_cells:
+	var blocks_arr: Array = data.get("blocks", [])
+	var next_id := 1
+	for b_dict in blocks_arr:
+		if b_dict is Dictionary:
+			var inst := BlockRegistryScript.BlockInstance.from_dict(b_dict)
+			if inst.id.is_empty():
+				inst.id = "blk_%d" % next_id
+				next_id += 1
+			var body := BlockRegistryScript.create_body(inst)
+			inst.body_node = body
+			add_child(body)
+			_blocks[inst.id] = inst
+			for cell in inst.get_occupied_cells():
+				_cell_to_block_id[cell] = inst.id
 				_nav.set_block(cell, true)
 
 	var sp_paths: Array = data.get("special_paths", [])
@@ -737,11 +787,19 @@ func _build_hud() -> void:
 	_banner_panel.offset_left = -310
 	_banner_panel.offset_right = 310
 	_banner_panel.offset_top = 16
-	_banner_panel.offset_bottom = 104
-	_banner_panel.custom_minimum_size = Vector2(620, 88)
+	_banner_panel.offset_bottom = 96
+	_banner_panel.custom_minimum_size = Vector2(620, 72)
 	_banner_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_banner_style = _create_9patch_style("res://assets/UI_assets/panel_alarm.png", 60.0, 55.0, 60.0, 50.0, 24.0, 16.0, 24.0, 16.0)
+	_banner_style = StyleBoxFlat.new()
+	_banner_style.bg_color = Color(0.06, 0.08, 0.12, 0.88)
+	_banner_style.set_corner_radius_all(12)
+	_banner_style.set_border_width_all(1)
+	_banner_style.border_color = Color(1.0, 0.85, 0.25, 0.6)
+	_banner_style.content_margin_left = 16
+	_banner_style.content_margin_right = 16
+	_banner_style.content_margin_top = 8
+	_banner_style.content_margin_bottom = 8
 	_banner_panel.add_theme_stylebox_override("panel", _banner_style)
 	_hud_canvas.add_child(_banner_panel)
 
@@ -780,49 +838,68 @@ func _build_hud() -> void:
 	_info_box = PanelContainer.new()
 	_info_box.offset_left = 20
 	_info_box.offset_top = 20
-	_info_box.custom_minimum_size = Vector2(280, 120)
+	_info_box.custom_minimum_size = Vector2(300, 130)
 	_info_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var info_style := StyleBoxEmpty.new()
+	var info_style := StyleBoxFlat.new()
+	info_style.bg_color = Color(0.06, 0.08, 0.11, 0.75)
+	info_style.set_corner_radius_all(10)
+	info_style.set_border_width_all(1)
+	info_style.border_color = Color(0.25, 0.85, 1.0, 0.3)
+	info_style.set_content_margin_all(12)
 	_info_box.add_theme_stylebox_override("panel", info_style)
 	_hud_canvas.add_child(_info_box)
 
 	var stat_vbox := VBoxContainer.new()
-	stat_vbox.add_theme_constant_override("separation", 4)
+	stat_vbox.add_theme_constant_override("separation", 6)
 	_info_box.add_child(stat_vbox)
 
+	var role_header := HBoxContainer.new()
+	role_header.add_theme_constant_override("separation", 8)
+	stat_vbox.add_child(role_header)
+
+	var r_icon := TextureRect.new()
+	r_icon.custom_minimum_size = Vector2(20, 20)
+	r_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	var is_runner := (NetworkManager.local_role == NetworkManager.Role.RUNNER)
+	r_icon.texture = load("res://assets/UI_assets/running-shoe.svg" if is_runner else "res://assets/UI_assets/wyvern.svg")
+	r_icon.modulate = Color(0.3, 1.0, 0.5) if is_runner else Color(1.0, 0.35, 0.25)
+	role_header.add_child(r_icon)
+
 	var mode_tag := Label.new()
-	mode_tag.text = "🌐 局域网联机对决 (%s)" % ("我是逃生者" if NetworkManager.local_role == NetworkManager.Role.RUNNER else "我是追缉者")
+	var my_name := ProfileManager.player_name if ProfileManager else "选手"
+	mode_tag.text = "%s (%s)" % [my_name, "逃生者" if is_runner else "追缉者"]
 	if _custom_font != null:
 		mode_tag.add_theme_font_override("font", _custom_font)
 	mode_tag.add_theme_font_size_override("font_size", 16)
 	mode_tag.modulate = Color(0.3, 0.9, 1.0)
-	stat_vbox.add_child(mode_tag)
+	role_header.add_child(mode_tag)
 
 	_survival_label = Label.new()
-	_survival_label.text = "对决时间: 00:00.0"
+	_survival_label.text = "对决剩余时间: 02:00.0"
 	if _custom_font != null:
 		_survival_label.add_theme_font_override("font", _custom_font)
 	_survival_label.add_theme_font_size_override("font_size", 14)
 	stat_vbox.add_child(_survival_label)
 
 	_distance_label = Label.new()
-	_distance_label.text = "双方距离: -- 米"
+	_distance_label.text = "双方测距: -- 米"
 	if _custom_font != null:
 		_distance_label.add_theme_font_override("font", _custom_font)
 	_distance_label.add_theme_font_size_override("font_size", 14)
 	stat_vbox.add_child(_distance_label)
 
 	_status_detail_label = Label.new()
-	_status_detail_label.text = "网络延迟补偿: Jitter Buffer (80ms)"
-	_status_detail_label.add_theme_font_size_override("font_size", 12)
-	_status_detail_label.modulate = Color(1.0, 1.0, 1.0, 0.65)
+	_status_detail_label.text = "网络延迟补偿: Jitter Buffer (60ms)"
+	_status_detail_label.add_theme_font_size_override("font_size", 11)
+	_status_detail_label.modulate = Color(1.0, 1.0, 1.0, 0.5)
 	stat_vbox.add_child(_status_detail_label)
 
 	_hint_tab_label = Label.new()
-	_hint_tab_label.text = "【Tab】视角: 亲自操控 (按Tab切换全局指挥)"
+	_hint_tab_label.text = "[Tab] 视角: 亲自操控 (按Tab切换全局指挥)"
 	if _custom_font != null:
 		_hint_tab_label.add_theme_font_override("font", _custom_font)
-	_hint_tab_label.add_theme_font_size_override("font_size", 13)
+	_hint_tab_label.add_theme_font_size_override("font_size", 12)
 	_hint_tab_label.modulate = Color(0.7, 0.8, 0.9, 0.75)
 	stat_vbox.add_child(_hint_tab_label)
 
@@ -835,14 +912,14 @@ func _build_hud() -> void:
 
 func _update_countdown_hud() -> void:
 	if _banner_style != null:
-		_banner_style.modulate_color = Color(1.0, 0.92, 0.65, 0.98)
+		_banner_style.border_color = Color(1.0, 0.85, 0.25, 0.75)
 	_banner_title.text = "对决准备倒计时: %.1f 秒" % _escape_timer
 	_banner_sub.text = "逃生者尽快拉开距离！倒计时结束后追缉者出动！"
 
 
 func _update_active_hud() -> void:
 	if _banner_style != null:
-		_banner_style.modulate_color = Color(1.0, 0.70, 0.70, 0.98)
+		_banner_style.border_color = Color(1.0, 0.35, 0.35, 0.75)
 	_banner_title.text = "追缉进行中！全力以赴！"
 	var dist := _local_body.global_position.distance_to(_remote_body.global_position) if _local_body and _remote_body else 0.0
 	_banner_sub.text = "双方距离: %.1fm (接近至 1.5m 判定捕获 | 存活 2 分钟逃生胜)" % dist
@@ -860,57 +937,298 @@ func _update_active_hud() -> void:
 		_distance_label.modulate = Color(0.3, 1.0, 0.5)
 
 
+# Game Over Two-Stage UI
+var _report_modal: PanelContainer
+var _report_icon: TextureRect
+var _report_title: Label
+var _report_desc: Label
+var _report_time_lbl: Label
+var _title_pulse_tween: Tween
+
+var _stage_modal: Control
+var _game_over_viewport: SubViewport
+var _game_over_stage_root: Node3D
+var _game_over_hero_node: Character
+var _stage_target_yaw: float = 0.0
+var _stage_current_yaw: float = 0.0
+var _is_stage_dragging := false
+var _match_is_win := false
+
+
 func _build_game_over_dialog() -> void:
-	_game_over_dialog = PanelContainer.new()
-	_game_over_dialog.set_anchors_preset(Control.PRESET_CENTER)
-	_game_over_dialog.offset_left = -230
-	_game_over_dialog.offset_right = 230
-	_game_over_dialog.offset_top = -175
-	_game_over_dialog.offset_bottom = 175
-	_game_over_dialog.custom_minimum_size = Vector2(460, 350)
-	_game_over_dialog.visible = false
+	# --- Stage 1: Exquisite 9-Patch Report Modal ---
+	_report_modal = PanelContainer.new()
+	_report_modal.set_anchors_preset(Control.PRESET_CENTER)
+	_report_modal.offset_left = -260
+	_report_modal.offset_right = 260
+	_report_modal.offset_top = -190
+	_report_modal.offset_bottom = 190
+	_report_modal.custom_minimum_size = Vector2(520, 380)
+	_report_modal.pivot_offset = Vector2(260, 190)
+	_report_modal.visible = false
 
 	var diag_style := _create_9patch_style("res://assets/UI_assets/panel_exquisite.png", 50.0, 45.0, 50.0, 45.0, 24.0, 24.0, 24.0, 22.0)
-	_game_over_dialog.add_theme_stylebox_override("panel", diag_style)
-	_hud_canvas.add_child(_game_over_dialog)
+	_report_modal.add_theme_stylebox_override("panel", diag_style)
+	_hud_canvas.add_child(_report_modal)
 
-	var vbox := VBoxContainer.new()
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_theme_constant_override("separation", 14)
-	_game_over_dialog.add_child(vbox)
+	var r_vbox := VBoxContainer.new()
+	r_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	r_vbox.add_theme_constant_override("separation", 14)
+	_report_modal.add_child(r_vbox)
 
-	_game_over_title = Label.new()
-	_game_over_title.text = "对 决 结 束"
-	_game_over_title.add_theme_font_size_override("font_size", 24)
-	_game_over_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(_game_over_title)
+	_report_icon = TextureRect.new()
+	_report_icon.custom_minimum_size = Vector2(64, 64)
+	_report_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_report_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	r_vbox.add_child(_report_icon)
 
-	_game_over_desc = Label.new()
-	_game_over_desc.text = "结算说明"
-	_game_over_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(_game_over_desc)
+	_report_title = Label.new()
+	_report_title.text = "对 决 结 束"
+	if _custom_font != null:
+		_report_title.add_theme_font_override("font", _custom_font)
+	_report_title.add_theme_font_size_override("font_size", 30)
+	_report_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	r_vbox.add_child(_report_title)
 
-	_game_over_time_lbl = Label.new()
-	_game_over_time_lbl.text = "对决时间: 00:00.0"
-	_game_over_time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vbox.add_child(_game_over_time_lbl)
+	_report_desc = Label.new()
+	_report_desc.text = "结算说明"
+	_report_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_report_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_report_desc.add_theme_font_size_override("font_size", 14)
+	r_vbox.add_child(_report_desc)
 
-	var btn_box := HBoxContainer.new()
-	btn_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	btn_box.add_theme_constant_override("separation", 16)
-	vbox.add_child(btn_box)
+	_report_time_lbl = Label.new()
+	_report_time_lbl.text = "对决时间: 00:00.0"
+	_report_time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if _custom_font != null:
+		_report_time_lbl.add_theme_font_override("font", _custom_font)
+	_report_time_lbl.add_theme_font_size_override("font_size", 22)
+	_report_time_lbl.modulate = Color(1.0, 0.85, 0.25)
+	r_vbox.add_child(_report_time_lbl)
+
+	var continue_btn := Button.new()
+	continue_btn.text = "▶ 点击继续 (CONTINUE)"
+	if _custom_font != null:
+		continue_btn.add_theme_font_override("font", _custom_font)
+	continue_btn.add_theme_font_size_override("font_size", 18)
+	continue_btn.custom_minimum_size = Vector2(240, 46)
+	continue_btn.pressed.connect(_on_report_continue_pressed)
+
+	var btn_style := StyleBoxFlat.new()
+	btn_style.bg_color = Color(0.85, 0.45, 0.15, 0.95)
+	btn_style.set_corner_radius_all(8)
+	btn_style.set_content_margin_all(8)
+	continue_btn.add_theme_stylebox_override("normal", btn_style)
+	r_vbox.add_child(continue_btn)
+
+	# --- Stage 2: 3D Character Stage & Actions ---
+	_stage_modal = Control.new()
+	_stage_modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_stage_modal.mouse_filter = Control.MOUSE_FILTER_PASS
+	_stage_modal.visible = false
+	_hud_canvas.add_child(_stage_modal)
+
+	var vp_cont := SubViewportContainer.new()
+	vp_cont.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vp_cont.stretch = true
+	vp_cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_stage_modal.add_child(vp_cont)
+
+	_game_over_viewport = SubViewport.new()
+	_game_over_viewport.size = Vector2i(get_viewport().get_visible_rect().size)
+	_game_over_viewport.world_3d = World3D.new()
+	_game_over_viewport.msaa_3d = Viewport.MSAA_4X
+	_game_over_viewport.use_hdr_2d = false
+	_game_over_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vp_cont.add_child(_game_over_viewport)
+
+	_game_over_stage_root = Node3D.new()
+	_game_over_viewport.add_child(_game_over_stage_root)
+
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.04, 0.05, 0.07, 0.92)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.2, 0.25, 0.35)
+	env.ambient_light_energy = 0.5
+	env.glow_enabled = true
+	env.glow_intensity = 0.8
+
+	var env_node := WorldEnvironment.new()
+	env_node.environment = env
+	_game_over_stage_root.add_child(env_node)
+
+	var dais := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 2.0
+	cyl.bottom_radius = 2.2
+	cyl.height = 0.3
+	var dais_mat := StandardMaterial3D.new()
+	dais_mat.albedo_color = Color(0.10, 0.12, 0.16)
+	dais_mat.roughness = 0.6
+	dais_mat.metallic = 0.4
+	dais.mesh = cyl
+	dais.material_override = dais_mat
+	dais.position = Vector3(0.0, -0.15, 0.0)
+	_game_over_stage_root.add_child(dais)
+
+	var cam := Camera3D.new()
+	cam.fov = 40.0
+	cam.near = 0.05
+	cam.current = true
+	_game_over_stage_root.add_child(cam)
+	cam.look_at_from_position(Vector3(0.0, 1.15, 3.2), Vector3(0.0, 0.95, 0.0))
+
+	var light := DirectionalLight3D.new()
+	light.light_color = Color(1.0, 0.9, 0.75)
+	light.light_energy = 1.2
+	light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-20.0), deg_to_rad(135.0), 0.0))
+	_game_over_stage_root.add_child(light)
+
+	var rim := DirectionalLight3D.new()
+	rim.light_color = Color(0.3, 0.8, 1.0)
+	rim.light_energy = 0.7
+	rim.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-15.0), deg_to_rad(-45.0), 0.0))
+	_game_over_stage_root.add_child(rim)
+
+	# Bottom Action Bar on Stage 2
+	var stage_bot_panel := PanelContainer.new()
+	stage_bot_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	stage_bot_panel.offset_left = 60
+	stage_bot_panel.offset_right = -60
+	stage_bot_panel.offset_top = -96
+	stage_bot_panel.offset_bottom = -24
+
+	var sb_style := _create_9patch_style("res://assets/UI_assets/panel_exquisite.png", 50.0, 45.0, 50.0, 45.0, 20.0, 14.0, 20.0, 14.0)
+	stage_bot_panel.add_theme_stylebox_override("panel", sb_style)
+	_stage_modal.add_child(stage_bot_panel)
+
+	var sb_hbox := HBoxContainer.new()
+	sb_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	sb_hbox.add_theme_constant_override("separation", 24)
+	stage_bot_panel.add_child(sb_hbox)
+
+	var drag_hint := Label.new()
+	drag_hint.text = "💡 鼠标在中央按住左键拖拽可 360° 旋转观察角色动作"
+	drag_hint.add_theme_font_size_override("font_size", 12)
+	drag_hint.modulate = Color(0.45, 0.75, 0.95, 0.8)
+	sb_hbox.add_child(drag_hint)
 
 	var lobby_btn := Button.new()
 	lobby_btn.text = "返回联机大厅"
-	lobby_btn.custom_minimum_size = Vector2(130, 38)
+	if _custom_font != null:
+		lobby_btn.add_theme_font_override("font", _custom_font)
+	lobby_btn.add_theme_font_size_override("font_size", 16)
+	lobby_btn.custom_minimum_size = Vector2(150, 42)
 	lobby_btn.pressed.connect(_on_exit_to_lobby)
-	btn_box.add_child(lobby_btn)
+	sb_hbox.add_child(lobby_btn)
 
 	var title_btn := Button.new()
 	title_btn.text = "返回主菜单"
-	title_btn.custom_minimum_size = Vector2(120, 38)
+	if _custom_font != null:
+		title_btn.add_theme_font_override("font", _custom_font)
+	title_btn.add_theme_font_size_override("font_size", 16)
+	title_btn.custom_minimum_size = Vector2(130, 42)
 	title_btn.pressed.connect(func(): NetworkManager.close_network(); SceneLoader.change_scene(get_tree(), TITLE_SCENE, "返回主界面..."))
-	btn_box.add_child(title_btn)
+	sb_hbox.add_child(title_btn)
+
+
+func _show_stage_one_report(i_win: bool, reason_text: String) -> void:
+	_match_is_win = i_win
+	_stage_modal.visible = false
+	_report_modal.visible = true
+	_report_modal.scale = Vector2(0.35, 0.35)
+	_report_modal.modulate = Color(1.0, 1.0, 1.0, 0.0)
+
+	var icon_path := "res://assets/UI_assets/freedom-dove.svg" if i_win else "res://assets/UI_assets/grim-reaper.svg"
+	if ResourceLoader.exists(icon_path):
+		_report_icon.texture = load(icon_path)
+		_report_icon.modulate = Color(0.3, 1.0, 0.5) if i_win else Color(1.0, 0.35, 0.35)
+
+	_report_title.text = "🏆 对 决 获 胜 (VICTORY)" if i_win else "💀 对 决 战 败 (DEFEATED)"
+	_report_title.modulate = Color(0.3, 1.0, 0.5) if i_win else Color(1.0, 0.35, 0.35)
+	_report_desc.text = reason_text
+
+	var m := int(_survival_time) / 60
+	var s := fmod(_survival_time, 60.0)
+	_report_time_lbl.text = "对决持续时间: %02d:%05.2f" % [m, s]
+
+	# Pop-in Elastic Animation
+	var tw_in := create_tween()
+	tw_in.set_parallel(true)
+	tw_in.tween_property(_report_modal, "scale", Vector2(1.0, 1.0), 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw_in.tween_property(_report_modal, "modulate:a", 1.0, 0.35)
+
+	# Text Pulse Tween
+	if _title_pulse_tween != null and _title_pulse_tween.is_valid():
+		_title_pulse_tween.kill()
+	_title_pulse_tween = create_tween().set_loops()
+	var base_col := Color(0.3, 1.0, 0.5) if i_win else Color(1.0, 0.35, 0.35)
+	var glow_col := Color(0.6, 1.3, 0.8) if i_win else Color(1.5, 0.5, 0.5)
+	_title_pulse_tween.tween_property(_report_title, "modulate", glow_col, 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_title_pulse_tween.tween_property(_report_title, "modulate", base_col, 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _on_report_continue_pressed() -> void:
+	if _title_pulse_tween != null and _title_pulse_tween.is_valid():
+		_title_pulse_tween.kill()
+
+	AudioManagerScript.play_voice_file("res://assets/voice/sfx/swing_mid_01.wav", -2.0)
+
+	# Pop-out report and show Stage 2
+	var tw_out := create_tween()
+	tw_out.set_parallel(true)
+	tw_out.tween_property(_report_modal, "scale", Vector2(0.5, 0.5), 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw_out.tween_property(_report_modal, "modulate:a", 0.0, 0.25)
+	tw_out.chain().tween_callback(func():
+		_report_modal.visible = false
+		_stage_modal.visible = true
+		_show_game_over_character(_match_is_win)
+	)
+
+
+func _show_game_over_character(i_win: bool) -> void:
+	if _game_over_stage_root == null:
+		return
+	if _game_over_hero_node != null and is_instance_valid(_game_over_hero_node):
+		_game_over_hero_node.queue_free()
+		_game_over_hero_node = null
+
+	var hero_path := NetworkManager.local_hero_scene
+	if hero_path.is_empty() or not ResourceLoader.exists(hero_path):
+		hero_path = "res://assets/characters/hero_1/hero_1.tscn"
+
+	var p_scene := load(hero_path) as PackedScene
+	if p_scene != null:
+		var inst := p_scene.instantiate() as Character
+		if inst != null:
+			_game_over_hero_node = inst
+			_game_over_hero_node.position = Vector3(0.0, 0.0, 0.0)
+			_game_over_hero_node.rotation.y = _stage_current_yaw
+			_game_over_stage_root.add_child(_game_over_hero_node)
+			if _game_over_hero_node.is_node_ready():
+				_play_match_end_anim(_game_over_hero_node, i_win)
+			else:
+				_game_over_hero_node.ready.connect(func(): _play_match_end_anim(_game_over_hero_node, i_win))
+
+
+func _play_match_end_anim(char_node: Character, i_win: bool) -> void:
+	if char_node == null:
+		return
+	if char_node.player == null:
+		char_node.player = AnimPipelineScript.first_of_class(char_node, "AnimationPlayer") as AnimationPlayer
+		char_node.skeleton = AnimPipelineScript.first_of_class(char_node, "Skeleton3D") as Skeleton3D
+		char_node.attach_libraries()
+
+	var anim_to_play := "yes" if i_win else "idle_no"
+	if not char_node.has_clip(anim_to_play):
+		anim_to_play = "dance" if i_win else "idle"
+
+	if char_node.has_clip(anim_to_play):
+		char_node.play(anim_to_play)
+		var resolved := char_node.resolve(anim_to_play)
+		if char_node.player != null and char_node.player.has_animation(resolved):
+			char_node.player.get_animation(resolved).loop_mode = Animation.LOOP_LINEAR
 
 
 func _on_exit_to_lobby() -> void:

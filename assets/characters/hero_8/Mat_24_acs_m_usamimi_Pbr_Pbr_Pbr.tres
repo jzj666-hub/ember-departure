@@ -1,0 +1,14 @@
+﻿[gd_resource type="StandardMaterial3D" format=3 uid="uid://dwqw4n3nclvlf"]
+
+[ext_resource type="Texture2D" uid="uid://d06mq2samf4mo" path="res://assets/characters/hero_8/hero_8.fbm/Mat_24_acs_m_usamimi_Pbr_Pbr_Pbr_Diffuse.png" id="1_jsn6h"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_24_acs_m_usamimi_Pbr_Pbr_Pbr"
+albedo_texture = ExtResource("1_jsn6h")
+emission_enabled = true
+emission_energy_multiplier = 0.0

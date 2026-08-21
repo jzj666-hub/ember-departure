@@ -1,0 +1,13 @@
+﻿[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/hero_10/hero_10_48.png" id="1_u6752"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_48_Mask_M__Pbr"
+transparency = 4
+albedo_texture = ExtResource("1_u6752")

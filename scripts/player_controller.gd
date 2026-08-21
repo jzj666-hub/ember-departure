@@ -256,6 +256,24 @@ const REVERSED := {
 ## is not turned down by floating point.
 @export var climb_clearance := 0.9
 
+# --- step up ----------------------------------------------------------------
+
+## Whether the body lifts itself over kerbs too low to be worth a jump.
+##
+## Closes a gap that only continuous maps open. A voxel cell is 1 m, so NavGrid
+## never plans a rise smaller than a whole climb, and the NPC executor asks for
+## nothing under its own step tolerance (~0.4 m). A baked NavigationMesh, by
+## contrast, promises agent_max_climb of step-up and routes straight over a
+## 0.2 m kerb - which the body then walks into and stops at forever.
+@export var step_up_enabled := true
+## Tallest kerb the body will lift itself over, in metres. Keep at or below the
+## navmesh bake's agent_max_climb: the mesh plans routes assuming exactly this
+## much, and promising more there than the body has is what jams it.
+## Must stay under climb_min_height, or kerbs steal what should be climbs.
+@export var step_max_height := 0.4
+## How far past its own radius the body probes for somewhere to put its feet.
+@export var step_probe_ahead := 0.08
+
 # --- fall and land ---------------------------------------------------------
 
 ## Whether walking off a platform plays the climb-down take rather than the
@@ -307,13 +325,13 @@ const REVERSED := {
 ## Whether the roll request does anything.
 @export var roll_enabled := true
 ## Seconds the roll lasts before control comes back.
-@export var roll_duration := 0.85
+@export var roll_duration := 0.52
 ## Playback rate of the roll take.
 @export var roll_rate := 1.6
 ## Peak velocity during roll in m/s.
 @export var roll_speed := 5.2
 ## Seconds after a roll ends before another can start.
-@export var roll_cooldown := 0.45
+@export var roll_cooldown := 0.10
 
 ## Seconds the action layer takes to cross-fade, in either direction.
 @export var action_blend := 0.14
@@ -505,6 +523,9 @@ func setup(visual: Node3D, follow_camera: Node3D) -> void:
 	_prepare_clips()
 	_bake_reversals()
 	_build_tree()
+	# The one seam for render tiering: every scene that spawns a body through
+	# setup() gets distance-based culling and a throttled mixer for free.
+	CharacterLOD.attach(character, _tree)
 	if intent_source == null:
 		intent_source = PlayerIntentSourceScript.new()
 	if _clearance == null:
@@ -1073,6 +1094,7 @@ func _physics_process(delta: float) -> void:
 		_: _drive_locomotion(delta)
 
 	move_and_slide()
+	_try_step_up()
 	# After the slide, all three: whether the ground is still there is only known
 	# once the body has tried to move onto it, walking into a wall should stop the
 	# legs too, and the effect wants where the body actually got to.
@@ -1162,25 +1184,15 @@ func _drive_locomotion(delta: float) -> void:
 			rotation.y = rotate_toward(rotation.y, _intent.heading, turn_rate * delta)
 		return
 
-	# Running is only ever a straight run forwards. Anything with a sidestep
-	# component in it has no running clip to reach for - there is no running
-	# sidestep in the library - so a sprint sideways would be a walk cycle laid
-	# over 3.6 m/s of ground and the feet would skate. Crouching does not run
-	# either. The rule lives here rather than in whatever asked to run, so a bot
-	# holding `run` down gets exactly the answer a player holding Shift does.
-	var running := _intent.run and not crouching \
-		and is_zero_approx(input.x) and input.y > 0.0
-	# Turn to the heading the input is expressed in, not to the direction of
-	# travel. That is what makes A/D a sidestep instead of a turn, and what keeps
-	# the view down the character's front - see FollowCamera.
-	rotation.y = rotate_toward(rotation.y, _intent.heading, turn_rate * delta)
-	# This rig faces +Z, not Godot's usual -Z: measured on all four characters,
-	# the toe bone sits 0.11-0.14 m in front of the ankle along +Z, and the
-	# travelling clips move +Z. Forward is therefore basis.z, and right is
-	# forward x up = +Z x +Y = MINUS basis.x. Getting that sign from Godot's
-	# usual -Z convention instead is what had A and D swapped; the strafe clips
-	# agree - left_strafe_walking travels +X.
+	var running := _intent.run and not crouching
 	var wanted := _wish_direction()
+
+	var target_yaw := _intent.heading
+	if camera == null or not bool(camera.get("is_first_person")):
+		if wanted.length_squared() > 0.001:
+			target_yaw = atan2(wanted.x, wanted.z)
+	rotation.y = rotate_toward(rotation.y, target_yaw, turn_rate * delta)
+
 	if crouching:
 		wanted *= crouch_speed
 	else:
@@ -1394,13 +1406,13 @@ func _drive_air(delta: float) -> void:
 	_air_speed = speed()
 	_fold(false, delta)
 	if _intent.move != Vector2.ZERO:
-		rotation.y = rotate_toward(rotation.y, _intent.heading,
-			turn_rate * air_control * delta)
-		# Aimed at whatever the body brought into the air with it, not at what the
-		# throttle is asking for. A sprint that drops to walking pace at the top of
-		# a jump cannot clear anything it could clear on the ground. The walk is the
-		# floor, so a jump from standing is still steerable.
 		var wanted := _wish_direction() * maxf(speed(), walk_speed)
+		var target_yaw := _intent.heading
+		if camera == null or not bool(camera.get("is_first_person")):
+			if wanted.length_squared() > 0.001:
+				target_yaw = atan2(wanted.x, wanted.z)
+		rotation.y = rotate_toward(rotation.y, target_yaw,
+			turn_rate * air_control * delta)
 		var blend: float = 1.0 - exp(-delta * acceleration * air_control)
 		velocity.x = lerpf(velocity.x, wanted.x, blend)
 		velocity.z = lerpf(velocity.z, wanted.z, blend)
@@ -1624,6 +1636,58 @@ func _fit_rate(take: String, span: float) -> float:
 	return length / maxf(span, 0.01)
 
 
+## Lifts the body onto a kerb the slide just stopped against. See step_up_enabled
+## for why this case exists at all.
+##
+## Probe is the standard three: rise, move in, come back down. Each leg must be
+## clear or the kerb is really a wall. Pre: called straight after
+## move_and_slide(), before the ground state is settled.
+## Post: position on top of the step, or untouched. Velocity is never modified -
+## the body keeps the pace it was already walking at.
+func _try_step_up() -> void:
+	if not step_up_enabled or step_max_height <= 0.0:
+		return
+	if not is_on_floor() or not is_on_wall():
+		return
+	match state:
+		State.CLIMBING, State.JUMPING, State.FALLING, State.ROLLING, State.LANDING:
+			return
+
+	# The direction asked for, not the one left over. move_and_slide() has already
+	# zeroed the velocity against the very kerb this is trying to get over, so
+	# reading velocity here says "not going anywhere" exactly when it matters.
+	# Same input _find_ledge() probes along, for the same reason.
+	if _intent.move == Vector2.ZERO:
+		return
+
+	var rise := Vector3.UP * step_max_height
+	var forward := _wish_direction() * (_capsule_radius() + step_probe_ahead)
+	var from := global_transform
+
+	# Headroom to rise into, then room to move in over the kerb once lifted.
+	if test_move(from, rise):
+		return
+	var lifted := from.translated(rise)
+	if test_move(lifted, forward):
+		return
+
+	# Something to come back down onto. No hit at all means the body was about to
+	# be dropped into a gap, which is a fall, not a step.
+	var over := lifted.translated(forward)
+	var landing := KinematicCollision3D.new()
+	if not test_move(over, -rise, landing):
+		return
+	if landing.get_normal().y < climb_floor_dot:
+		return
+
+	# Only commit to a genuine rise. Without this the same probe succeeds while
+	# scraping along a flat wall, where it would teleport the body sideways.
+	var settled := over.origin + landing.get_travel()
+	if settled.y - global_position.y <= 0.02:
+		return
+	global_position = settled
+
+
 ## Probes area in front of character to find a climbable ledge. Returns target foot position or NO_LEDGE.
 func _find_ledge() -> Vector3:
 	var space := get_world_3d().direct_space_state
@@ -1635,10 +1699,6 @@ func _find_ledge() -> Vector3:
 		dirs.append(wish)
 
 	for forward in dirs:
-		var chest := global_position + Vector3.UP * (climb_min_height * 0.5)
-		if _cast(space, chest, chest + forward * reach).is_empty():
-			continue
-
 		var ahead := global_position + forward * reach
 		var hit := _cast(space,
 			Vector3(ahead.x, global_position.y + climb_max_height + LEDGE_PROBE_RISE, ahead.z),
@@ -1737,6 +1797,8 @@ func _drive_roll(delta: float) -> void:
 		state = State.IDLE
 		_action_slides = false
 		_stop_action()
+		if _intent.move != Vector2.ZERO:
+			_drive_locomotion(0.0)
 
 
 # --- the attack ------------------------------------------------------------
@@ -1845,9 +1907,14 @@ func _drive_attack_move(delta: float) -> void:
 		velocity.x = lerpf(velocity.x, 0.0, settle)
 		velocity.z = lerpf(velocity.z, 0.0, settle)
 		return
-	rotation.y = rotate_toward(rotation.y, _intent.heading,
+	var wanted := _wish_direction()
+	var target_yaw := _intent.heading
+	if camera == null or not bool(camera.get("is_first_person")):
+		if wanted.length_squared() > 0.001:
+			target_yaw = atan2(wanted.x, wanted.z)
+	rotation.y = rotate_toward(rotation.y, target_yaw,
 		turn_rate * attack_turn * delta)
-	var wanted := _wish_direction() * walk_speed
+	wanted *= walk_speed
 	var blend: float = 1.0 - exp(-delta * acceleration)
 	velocity.x = lerpf(velocity.x, wanted.x, blend)
 	velocity.z = lerpf(velocity.z, wanted.z, blend)
@@ -2214,3 +2281,8 @@ func weapon_stroke_count() -> int:
 func force_network_anim(action_name: String, _state_val: int) -> void:
 	if not action_name.is_empty():
 		_play_action(action_name, 1.0)
+
+
+func drive_network_step(delta: float) -> void:
+	if _tree != null:
+		_drive_animation(delta)

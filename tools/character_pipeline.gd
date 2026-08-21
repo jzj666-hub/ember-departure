@@ -175,6 +175,7 @@ static func configure_all(log_fn: Callable = Callable()) -> PackedStringArray:
 	var changed := PackedStringArray()
 	for character in list_characters():
 		var result := configure(character)
+		fix_character_materials(character.dir)
 		if not log_fn.is_null():
 			log_fn.call("  %-24s %s" % [character.id, result.message])
 		if result.changed:
@@ -261,16 +262,17 @@ static func configure(character: Dictionary) -> Dictionary:
 	subs["nodes"] = nodes
 	cfg.set_value("params", "_subresources", subs)
 
-	# This is the last moment the height can be read off the file: the reimport
-	# that follows snaps the rest pose onto the humanoid profile without touching
-	# the vertices, after which the skeleton and the mesh no longer describe the
-	# same shape and nothing says which mesh axis is up. See AnimPipeline.body_height().
 	var measured := _measure(character, probed, match_result, cfg)
 	var scale := 0.0
 	if measured > 0.0:
 		scale = character.target_height / measured
 		cfg.set_value("params", "nodes/apply_root_scale", true)
 		cfg.set_value("params", "nodes/root_scale", scale)
+
+	# Ensure materials are extracted to character folder
+	cfg.set_value("params", "materials/extract", 1)
+	cfg.set_value("params", "materials/extract_format", 0)
+	cfg.set_value("params", "materials/extract_path", character.dir)
 
 	if cfg.save(import_path) != OK:
 		return {"changed": false, "message": "ERROR could not write .import"}
@@ -449,7 +451,46 @@ static func build_scene(character: Dictionary) -> String:
 	root.free()
 	if err != OK:
 		return "%s: could not write %s (%d)" % [character.id, character.scene, err]
+	fix_character_materials(character.dir)
 	return ""
+
+
+## Configures character materials: double-sided toon shading without harsh specular.
+static func fix_character_materials(dir_path: String) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	for fname in dir.get_files():
+		if not fname.ends_with(".tres") or not fname.begins_with("Mat_"):
+			continue
+		var full_path := dir_path.path_join(fname)
+		var mat := ResourceLoader.load(full_path, "StandardMaterial3D", ResourceLoader.CACHE_MODE_IGNORE) as StandardMaterial3D
+		if mat == null:
+			continue
+		var modified := false
+		if mat.cull_mode != BaseMaterial3D.CULL_DISABLED:
+			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			modified = true
+		if mat.shading_mode != BaseMaterial3D.SHADING_MODE_PER_PIXEL:
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+			modified = true
+		if mat.diffuse_mode != BaseMaterial3D.DIFFUSE_TOON:
+			mat.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+			modified = true
+		if mat.specular_mode != BaseMaterial3D.SPECULAR_DISABLED:
+			mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+			modified = true
+		if mat.roughness != 1.0:
+			mat.roughness = 1.0
+			modified = true
+		if mat.vertex_color_use_as_albedo:
+			mat.vertex_color_use_as_albedo = false
+			modified = true
+		if mat.albedo_color.r != 1.0 or mat.albedo_color.g != 1.0 or mat.albedo_color.b != 1.0:
+			mat.albedo_color = Color(1.0, 1.0, 1.0, mat.albedo_color.a)
+			modified = true
+		if modified:
+			ResourceSaver.save(mat, full_path)
 
 
 # --- diagnostics ----------------------------------------------------------

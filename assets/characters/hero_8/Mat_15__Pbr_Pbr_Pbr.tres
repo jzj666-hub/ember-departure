@@ -1,0 +1,14 @@
+﻿[gd_resource type="StandardMaterial3D" format=3 uid="uid://dybqhjmyewi4k"]
+
+[ext_resource type="Texture2D" uid="uid://hy6h0jm3wmn5" path="res://assets/characters/hero_8/hero_8.fbm/Mat_15__Pbr_Pbr_Pbr_Diffuse.png" id="1_omgun"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_15__Pbr_Pbr_Pbr"
+albedo_texture = ExtResource("1_omgun")
+emission_enabled = true
+emission_energy_multiplier = 0.0

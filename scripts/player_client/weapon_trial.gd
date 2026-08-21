@@ -11,6 +11,8 @@ const DummyTargetScript = preload("res://scripts/dummy_target.gd")
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const WeaponConfigScript = preload("res://scripts/weapon_config.gd")
 const WeaponGraphScript = preload("res://scripts/weapon_graph.gd")
+const KeybindManagerScript = preload("res://scripts/keybind_manager.gd")
+const KeybindRemapPanelScript = preload("res://scripts/keybind_remap_panel.gd")
 
 const TITLE_SCENE := "res://scenes/player_client/title_screen.tscn"
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
@@ -40,6 +42,8 @@ var _weapon_list: ItemList
 var _combo_box: VBoxContainer
 var _weapon_title_label: Label
 var _immersive_hint_panel: PanelContainer
+var _keybind_panel: Control = null
+var _hint_lbl: Label
 
 # Top Real-time Combo Prompt Banner
 var _combo_banner_panel: PanelContainer
@@ -99,7 +103,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.65
+	env.ambient_light_energy = 0.45
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.glow_enabled = true
 	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
@@ -114,13 +118,13 @@ func _build_environment() -> void:
 	add_child(env_node)
 
 	var sun := DirectionalLight3D.new()
-	sun.light_energy = 2.2
+	sun.light_energy = 1.2
 	sun.shadow_enabled = true
 	sun.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(-35.0), 0.0))
 	add_child(sun)
 
 	var fill := DirectionalLight3D.new()
-	fill.light_energy = 0.6
+	fill.light_energy = 0.4
 	fill.shadow_enabled = false
 	fill.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-20.0), deg_to_rad(145.0), 0.0))
 	add_child(fill)
@@ -347,11 +351,20 @@ func _build_hud() -> void:
 		var shortcut_prefix := "[%d] " % (i + 1) if i < 9 else "    "
 		_weapon_list.add_item(shortcut_prefix + w_id)
 
+	var remap_btn := Button.new()
+	remap_btn.text = "⚙️ 按键重定向设置 (按 O)"
+	remap_btn.custom_minimum_size = Vector2(0, 32)
+	if _custom_font != null:
+		remap_btn.add_theme_font_override("font", _custom_font)
+	remap_btn.add_theme_font_size_override("font_size", 13)
+	remap_btn.pressed.connect(func() -> void: _open_keybind_panel())
+	left_vbox.add_child(remap_btn)
+
 	# 3. Bottom Immersive Hint Card
 	_immersive_hint_panel = PanelContainer.new()
 	_immersive_hint_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_immersive_hint_panel.position = Vector2(-380, -75)
-	_immersive_hint_panel.custom_minimum_size = Vector2(360, 55)
+	_immersive_hint_panel.position = Vector2(-420, -75)
+	_immersive_hint_panel.custom_minimum_size = Vector2(400, 55)
 
 	var b_style := StyleBoxFlat.new()
 	b_style.bg_color = Color(0.07, 0.09, 0.13, 0.85)
@@ -362,23 +375,62 @@ func _build_hud() -> void:
 	_immersive_hint_panel.add_theme_stylebox_override("panel", b_style)
 	_hud_layer.add_child(_immersive_hint_panel)
 
-	var hint_lbl := Label.new()
-	hint_lbl.text = "【L 键】开关武器库菜单 · 【Tab】换英雄\n左键: 普攻 · 右键: 重击/派生 · ESC: 返回主菜单"
+	_hint_lbl = Label.new()
+	_refresh_hint_text()
 	if _custom_font != null:
-		hint_lbl.add_theme_font_override("font", _custom_font)
-	hint_lbl.add_theme_font_size_override("font_size", 12)
-	hint_lbl.modulate = Color(0.85, 0.88, 0.92, 0.85)
-	_immersive_hint_panel.add_child(hint_lbl)
+		_hint_lbl.add_theme_font_override("font", _custom_font)
+	_hint_lbl.add_theme_font_size_override("font_size", 12)
+	_hint_lbl.modulate = Color(0.85, 0.88, 0.92, 0.85)
+	_immersive_hint_panel.add_child(_hint_lbl)
+
+	# 4. Keybind Remap Panel Modal
+	_keybind_panel = KeybindRemapPanelScript.new()
+	_keybind_panel.set_anchors_preset(Control.PRESET_CENTER)
+	_keybind_panel.position = Vector2(-310, -280)
+	_keybind_panel.visible = false
+	_keybind_panel.closed.connect(_on_keybind_panel_closed)
+	_hud_layer.add_child(_keybind_panel)
+
+	KeybindManagerScript.get_instance().keybindings_changed.connect(func() -> void:
+		_refresh_hint_text()
+		_update_idle_combo_prompt()
+	)
+
+
+func _refresh_hint_text() -> void:
+	if _hint_lbl == null:
+		return
+	var km = KeybindManagerScript.get_instance()
+	var atk: String = km.binding_display_text("attack")
+	var hvy: String = km.binding_display_text("heavy")
+	var roll: String = km.binding_display_text("roll")
+	_hint_lbl.text = "【L】武器库 · 【O】按键重定向 · 【Tab】换英雄\n%s: 普攻 · %s: 重击 · %s: 翻滚" % [atk, hvy, roll]
+
+
+func _open_keybind_panel() -> void:
+	if _keybind_panel != null:
+		_keybind_panel.visible = true
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _on_keybind_panel_closed() -> void:
+	_refresh_hint_text()
+	_update_idle_combo_prompt()
+	if _immersive:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _set_immersive(immersive: bool) -> void:
 	_immersive = immersive
 	if _left_panel != null:
 		_left_panel.visible = not _immersive
+	if _keybind_panel != null and _immersive:
+		_keybind_panel.visible = false
 
 	if _immersive:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	else:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -490,14 +542,17 @@ func _process(_delta: float) -> void:
 		if elapsed >= w_start and elapsed <= w_end:
 			in_window = true
 
-	# Compose clean prompt text according to user request
+	# Compose clean prompt text dynamically from KeybindManager
+	var km = KeybindManagerScript.get_instance()
+	var atk_prompt: String = km.binding_short_action_text("attack")
+	var hvy_prompt: String = km.binding_short_action_text("heavy")
 	var prompt_action := ""
 	if has_attack and has_heavy:
-		prompt_action = "点左键 或 点右键"
+		prompt_action = "%s 或 %s" % [atk_prompt, hvy_prompt]
 	elif has_attack:
-		prompt_action = "点左键"
+		prompt_action = atk_prompt
 	elif has_heavy:
-		prompt_action = "点右键"
+		prompt_action = hvy_prompt
 	else:
 		prompt_action = "按对应按键"
 
@@ -517,8 +572,12 @@ func _process(_delta: float) -> void:
 
 
 func _update_idle_combo_prompt() -> void:
+	var km = KeybindManagerScript.get_instance()
+	var atk_prompt: String = km.binding_short_action_text("attack")
+	var hvy_prompt: String = km.binding_short_action_text("heavy")
+
 	if _current_config.is_empty():
-		_combo_prompt_label.text = "【点左键】普通挥击起手"
+		_combo_prompt_label.text = "【%s】普通挥击起手" % atk_prompt
 		_combo_sub_label.text = "当前神兵: %s · 待命状态" % _current_weapon_id
 		return
 
@@ -533,35 +592,47 @@ func _update_idle_combo_prompt() -> void:
 			has_heavy = true
 
 	if has_attack and has_heavy:
-		_combo_prompt_label.text = "【点左键 或 点右键】开始出招"
+		_combo_prompt_label.text = "【%s 或 %s】开始出招" % [atk_prompt, hvy_prompt]
 	elif has_heavy:
-		_combo_prompt_label.text = "【点右键】重击/派生起手"
+		_combo_prompt_label.text = "【%s】重击/派生起手" % hvy_prompt
 	else:
-		_combo_prompt_label.text = "【点左键】普通挥击起手"
+		_combo_prompt_label.text = "【%s】普通挥击起手" % atk_prompt
 
 	_combo_prompt_label.modulate = Color(1.0, 0.88, 0.35)
-	_combo_sub_label.text = "当前神兵: %s · 待命中（按 L 键打开武器库菜单）" % _current_weapon_id
+	_combo_sub_label.text = "当前神兵: %s · 待命中 (按 L 开关武器库 · 按 O 重定向按键)" % _current_weapon_id
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	var button := event as InputEventMouseButton
 	if button != null:
 		if _immersive and button.pressed and _player != null:
-			if button.button_index == MOUSE_BUTTON_LEFT:
-				_player.request_button("attack")
-				return
-			elif button.button_index == MOUSE_BUTTON_RIGHT:
-				_player.request_button("heavy")
+			var km = KeybindManagerScript.get_instance()
+			var act: String = km.get_action_for_mouse_button(button.button_index)
+			if not act.is_empty():
+				_player.request_button(act)
 				return
 
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
+			KEY_O, KEY_F2:
+				get_viewport().set_input_as_handled()
+				if _keybind_panel != null:
+					if _keybind_panel.visible:
+						_keybind_panel.visible = false
+						_on_keybind_panel_closed()
+					else:
+						_open_keybind_panel()
+				return
 			KEY_L:
 				get_viewport().set_input_as_handled()
 				_set_immersive(not _immersive)
 				return
 			KEY_ESCAPE:
 				get_viewport().set_input_as_handled()
+				if _keybind_panel != null and _keybind_panel.visible:
+					_keybind_panel.visible = false
+					_on_keybind_panel_closed()
+					return
 				if not _immersive:
 					_set_immersive(true)
 					return

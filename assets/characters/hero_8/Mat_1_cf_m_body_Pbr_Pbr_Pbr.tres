@@ -1,0 +1,15 @@
+﻿[gd_resource type="StandardMaterial3D" format=3 uid="uid://2edjkqsm8hok"]
+
+[ext_resource type="Texture2D" uid="uid://dxyuwig8os3uv" path="res://assets/characters/hero_8/hero_8.fbm/Mat_1_cf_m_body_Pbr_Pbr_Pbr_Diffuse.png" id="1_gulob"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_1_cf_m_body_Pbr_Pbr_Pbr"
+transparency = 4
+albedo_texture = ExtResource("1_gulob")
+emission_enabled = true
+emission_energy_multiplier = 0.0

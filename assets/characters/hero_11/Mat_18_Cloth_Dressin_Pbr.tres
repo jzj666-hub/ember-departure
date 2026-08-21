@@ -1,0 +1,12 @@
+﻿[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/hero_11/hero_11.fbm/Mat_18_Cloth_Dressin_Pbr_Diffuse.png" id="1_yau2c"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_18_Cloth_Dressin_Pbr"
+albedo_texture = ExtResource("1_yau2c")

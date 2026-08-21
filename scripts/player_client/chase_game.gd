@@ -3,6 +3,7 @@ extends Node3D
 ## Clean game-feel UI with zero web emojis, full voiceover, keycap guide, and dynamic AI rules.
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const AnimPipelineScript = preload("res://tools/anim_pipeline.gd")
 const NavGridScript = preload("res://scripts/nav_grid.gd")
 const BlockRegistryScript = preload("res://scripts/block_registry.gd")
 const MapDataScript = preload("res://scripts/map_data.gd")
@@ -95,7 +96,7 @@ var _player_beacon: MeshInstance3D
 var _hud_canvas: CanvasLayer
 var _crosshair: Control
 var _banner_panel: PanelContainer
-var _banner_style: StyleBoxTexture
+var _banner_style: StyleBoxFlat
 var _banner_icon: TextureRect
 var _banner_title: Label
 var _banner_sub: Label
@@ -176,6 +177,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				_last_x_press_time = now
 			return
 
+	if _state == State.GAME_OVER and _stage_modal != null and _stage_modal.visible:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+			_is_stage_dragging = event.pressed
+		elif event is InputEventMouseMotion and _is_stage_dragging:
+			_stage_target_yaw += event.relative.x * 0.008
+
 	if not _commander_mode:
 		return
 
@@ -205,6 +212,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	if _state == State.GAME_OVER and _game_over_hero_node != null and is_instance_valid(_game_over_hero_node):
+		_stage_current_yaw = lerp_angle(_stage_current_yaw, _stage_target_yaw, delta * 12.0)
+		_game_over_hero_node.rotation.y = _stage_current_yaw
+
 	if _commander_mode:
 		_drive_commander_camera(delta)
 		_cast_crosshair()
@@ -222,6 +233,9 @@ func _physics_process(delta: float) -> void:
 				_last_countdown_voice = cur_sec
 				AudioManagerScript.play_countdown(cur_sec, true)
 
+			if _npc != null:
+				_npc.global_position = _npc_spawn
+				_npc.velocity = Vector3.ZERO
 			if _npc_intent != null:
 				_npc_intent.clear_target()
 
@@ -374,7 +388,10 @@ func _start_escape_countdown() -> void:
 	_camera.snap()
 
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	_game_over_dialog.visible = false
+	if _report_modal != null:
+		_report_modal.visible = false
+	if _stage_modal != null:
+		_stage_modal.visible = false
 	_banner_panel.visible = true
 	_info_box.visible = true
 
@@ -395,28 +412,9 @@ func _trigger_game_win() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 	AudioManagerScript.play_win(true)
-
-	if _game_over_icon != null and ResourceLoader.exists("res://assets/UI_assets/freedom-dove.svg"):
-		_game_over_icon.texture = load("res://assets/UI_assets/freedom-dove.svg")
-		_game_over_icon.modulate = Color(0.3, 1.0, 0.5)
-
-	if _game_over_title != null:
-		_game_over_title.text = "逃 生 成 功 ！"
-		_game_over_title.modulate = Color(0.3, 1.0, 0.5)
-
-	if _game_over_desc != null:
-		_game_over_desc.text = "成功坚持存活满 2 分钟，赢得了追缉对决！"
-		_game_over_desc.modulate = Color(0.85, 0.95, 0.85)
-
-	var m := int(CHASE_TIME_LIMIT) / 60
-	var s := fmod(CHASE_TIME_LIMIT, 60.0)
-	if _game_over_time_lbl != null:
-		_game_over_time_lbl.text = "%02d:%05.2f" % [m, s]
-		_game_over_time_lbl.modulate = Color(0.3, 1.0, 0.5)
-
-	_game_over_dialog.visible = true
 	_banner_panel.visible = false
 	_target_beacon.visible = false
+	_show_stage_one_report(true, "成功坚持存活满 2 分钟，赢得了追缉对决！")
 
 
 func _trigger_game_over() -> void:
@@ -425,28 +423,9 @@ func _trigger_game_over() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 	AudioManagerScript.play_lose(true)
-
-	if _game_over_icon != null and ResourceLoader.exists("res://assets/UI_assets/grim-reaper.svg"):
-		_game_over_icon.texture = load("res://assets/UI_assets/grim-reaper.svg")
-		_game_over_icon.modulate = Color(1.0, 0.3, 0.3)
-
-	if _game_over_title != null:
-		_game_over_title.text = "被 追 缉 者 捕 获 ！"
-		_game_over_title.modulate = Color(1.0, 0.35, 0.35)
-
-	if _game_over_desc != null:
-		_game_over_desc.text = "追缉者已逼近至 1.5 米范围以内，逃生失败。"
-		_game_over_desc.modulate = Color(0.8, 0.8, 0.8)
-
-	var m := int(_survival_time) / 60
-	var s := fmod(_survival_time, 60.0)
-	if _game_over_time_lbl != null:
-		_game_over_time_lbl.text = "%02d:%05.2f" % [m, s]
-		_game_over_time_lbl.modulate = Color(1.0, 0.85, 0.25)
-
-	_game_over_dialog.visible = true
 	_banner_panel.visible = false
 	_target_beacon.visible = false
+	_show_stage_one_report(false, "追缉者已逼近至 1.5 米范围以内，逃生失败。")
 
 
 func _build_environment() -> void:
@@ -462,7 +441,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.8
+	env.ambient_light_energy = 0.5
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 
@@ -472,7 +451,7 @@ func _build_environment() -> void:
 
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-45.0, 35.0, 0.0)
-	sun.light_energy = 1.3
+	sun.light_energy = 1.1
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true
@@ -959,10 +938,18 @@ func _build_hud() -> void:
 	_banner_panel.offset_right = 310
 	_banner_panel.offset_top = 16
 	_banner_panel.offset_bottom = 104
-	_banner_panel.custom_minimum_size = Vector2(620, 88)
+	_banner_panel.custom_minimum_size = Vector2(620, 72)
 	_banner_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_banner_style = _create_9patch_style("res://assets/UI_assets/panel_alarm.png", 60.0, 55.0, 60.0, 50.0, 24.0, 16.0, 24.0, 16.0)
+	_banner_style = StyleBoxFlat.new()
+	_banner_style.bg_color = Color(0.06, 0.08, 0.12, 0.88)
+	_banner_style.set_corner_radius_all(12)
+	_banner_style.set_border_width_all(1)
+	_banner_style.border_color = Color(1.0, 0.85, 0.25, 0.6)
+	_banner_style.content_margin_left = 16
+	_banner_style.content_margin_right = 16
+	_banner_style.content_margin_top = 8
+	_banner_style.content_margin_bottom = 8
 	_banner_panel.add_theme_stylebox_override("panel", _banner_style)
 	_hud_canvas.add_child(_banner_panel)
 
@@ -1136,7 +1123,7 @@ func _add_mini_key(grid: GridContainer, key_png: String, label_text: String) -> 
 
 func _update_escape_countdown_hud() -> void:
 	if _banner_style != null:
-		_banner_style.modulate_color = Color(1.0, 0.92, 0.65, 0.98)
+		_banner_style.border_color = Color(1.0, 0.85, 0.25, 0.75)
 	if ResourceLoader.exists("res://assets/UI_assets/extra-time.svg"):
 		_banner_icon.texture = load("res://assets/UI_assets/extra-time.svg")
 		_banner_icon.modulate = Color(1.0, 0.85, 0.2)
@@ -1153,7 +1140,7 @@ func _update_escape_countdown_hud() -> void:
 
 func _update_active_chase_hud() -> void:
 	if _banner_style != null:
-		_banner_style.modulate_color = Color(1.0, 0.70, 0.70, 0.98)
+		_banner_style.border_color = Color(1.0, 0.35, 0.35, 0.75)
 	if ResourceLoader.exists("res://assets/UI_assets/cctv-camera.svg"):
 		_banner_icon.texture = load("res://assets/UI_assets/cctv-camera.svg")
 		_banner_icon.modulate = Color(1.0, 0.35, 0.35)
@@ -1184,86 +1171,302 @@ func _update_active_chase_hud() -> void:
 	var p_cell := _nav.standing_node(_player.global_position)
 	var n_cell := _nav.standing_node(_npc.global_position)
 	var same_plat := _nav.is_same_flat_platform(n_cell, p_cell)
-	_status_detail_label.text = "追缉者寻路: A* 动力学规划 (%s)" % ("同平台高频 60ms" if same_plat else "跨障碍 250ms")
+	_status_detail_label.text = "追缉者寻路: A* 智能路径规划 (%s)" % ("同平台高频 60ms" if same_plat else "跨障碍 250ms")
+
+
+# Game Over Two-Stage UI
+var _report_modal: PanelContainer
+var _report_icon: TextureRect
+var _report_title: Label
+var _report_desc: Label
+var _report_time_lbl: Label
+var _title_pulse_tween: Tween
+
+var _stage_modal: Control
+var _game_over_viewport: SubViewport
+var _game_over_stage_root: Node3D
+var _game_over_hero_node: Character
+var _stage_target_yaw: float = 0.0
+var _stage_current_yaw: float = 0.0
+var _is_stage_dragging := false
+var _match_is_win := false
 
 
 func _build_game_over_dialog() -> void:
-	_game_over_dialog = PanelContainer.new()
-	_game_over_dialog.set_anchors_preset(Control.PRESET_CENTER)
-	_game_over_dialog.offset_left = -230
-	_game_over_dialog.offset_right = 230
-	_game_over_dialog.offset_top = -175
-	_game_over_dialog.offset_bottom = 175
-	_game_over_dialog.custom_minimum_size = Vector2(460, 350)
-	_game_over_dialog.visible = false
+	# --- Stage 1: Exquisite 9-Patch Report Modal ---
+	_report_modal = PanelContainer.new()
+	_report_modal.set_anchors_preset(Control.PRESET_CENTER)
+	_report_modal.offset_left = -260
+	_report_modal.offset_right = 260
+	_report_modal.offset_top = -190
+	_report_modal.offset_bottom = 190
+	_report_modal.custom_minimum_size = Vector2(520, 380)
+	_report_modal.pivot_offset = Vector2(260, 190)
+	_report_modal.visible = false
 
 	var diag_style := _create_9patch_style("res://assets/UI_assets/panel_exquisite.png", 50.0, 45.0, 50.0, 45.0, 24.0, 24.0, 24.0, 22.0)
-	_game_over_dialog.add_theme_stylebox_override("panel", diag_style)
-	_hud_canvas.add_child(_game_over_dialog)
+	_report_modal.add_theme_stylebox_override("panel", diag_style)
+	_hud_canvas.add_child(_report_modal)
 
-	var vbox := VBoxContainer.new()
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_theme_constant_override("separation", 14)
-	_game_over_dialog.add_child(vbox)
+	var r_vbox := VBoxContainer.new()
+	r_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	r_vbox.add_theme_constant_override("separation", 14)
+	_report_modal.add_child(r_vbox)
 
-	_game_over_icon = TextureRect.new()
-	if ResourceLoader.exists("res://assets/UI_assets/grim-reaper.svg"):
-		_game_over_icon.texture = load("res://assets/UI_assets/grim-reaper.svg")
-	_game_over_icon.custom_minimum_size = Vector2(56, 56)
-	_game_over_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_game_over_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_game_over_icon.modulate = Color(1.0, 0.3, 0.3)
-	vbox.add_child(_game_over_icon)
+	_report_icon = TextureRect.new()
+	_report_icon.custom_minimum_size = Vector2(64, 64)
+	_report_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_report_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	r_vbox.add_child(_report_icon)
 
-	_game_over_title = Label.new()
-	_game_over_title.text = "被 追 缉 者 捕 获 ！"
-	_game_over_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_report_title = Label.new()
+	_report_title.text = "对 决 结 束"
 	if _custom_font != null:
-		_game_over_title.add_theme_font_override("font", _custom_font)
-	_game_over_title.add_theme_font_size_override("font_size", 24)
-	_game_over_title.modulate = Color(1.0, 0.35, 0.35)
-	vbox.add_child(_game_over_title)
+		_report_title.add_theme_font_override("font", _custom_font)
+	_report_title.add_theme_font_size_override("font_size", 30)
+	_report_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	r_vbox.add_child(_report_title)
 
-	_game_over_desc = Label.new()
-	_game_over_desc.text = "追缉者已逼近至 1.5 米范围以内，逃生失败。"
-	_game_over_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_report_desc = Label.new()
+	_report_desc.text = "结算说明"
+	_report_desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_report_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_report_desc.add_theme_font_size_override("font_size", 14)
+	r_vbox.add_child(_report_desc)
+
+	_report_time_lbl = Label.new()
+	_report_time_lbl.text = "00:00.0"
+	_report_time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if _custom_font != null:
-		_game_over_desc.add_theme_font_override("font", _custom_font)
-	_game_over_desc.add_theme_font_size_override("font_size", 14)
-	_game_over_desc.modulate = Color(0.8, 0.8, 0.8)
-	vbox.add_child(_game_over_desc)
+		_report_time_lbl.add_theme_font_override("font", _custom_font)
+	_report_time_lbl.add_theme_font_size_override("font_size", 24)
+	_report_time_lbl.modulate = Color(1.0, 0.85, 0.25)
+	r_vbox.add_child(_report_time_lbl)
 
-	_game_over_time_lbl = Label.new()
-	_game_over_time_lbl.text = "00:00.0"
-	_game_over_time_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var continue_btn := Button.new()
+	continue_btn.text = "▶ 点击继续 (CONTINUE)"
 	if _custom_font != null:
-		_game_over_time_lbl.add_theme_font_override("font", _custom_font)
-	_game_over_time_lbl.add_theme_font_size_override("font_size", 30)
-	_game_over_time_lbl.modulate = Color(1.0, 0.85, 0.25)
-	vbox.add_child(_game_over_time_lbl)
+		continue_btn.add_theme_font_override("font", _custom_font)
+	continue_btn.add_theme_font_size_override("font_size", 18)
+	continue_btn.custom_minimum_size = Vector2(240, 46)
+	continue_btn.pressed.connect(_on_report_continue_pressed)
 
-	var btn_box := HBoxContainer.new()
-	btn_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	btn_box.add_theme_constant_override("separation", 16)
-	vbox.add_child(btn_box)
+	var btn_style := StyleBoxFlat.new()
+	btn_style.bg_color = Color(0.85, 0.45, 0.15, 0.95)
+	btn_style.set_corner_radius_all(8)
+	btn_style.set_content_margin_all(8)
+	continue_btn.add_theme_stylebox_override("normal", btn_style)
+	r_vbox.add_child(continue_btn)
+
+	# --- Stage 2: 3D Character Stage & Actions ---
+	_stage_modal = Control.new()
+	_stage_modal.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_stage_modal.mouse_filter = Control.MOUSE_FILTER_PASS
+	_stage_modal.visible = false
+	_hud_canvas.add_child(_stage_modal)
+
+	var vp_cont := SubViewportContainer.new()
+	vp_cont.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vp_cont.stretch = true
+	vp_cont.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_stage_modal.add_child(vp_cont)
+
+	_game_over_viewport = SubViewport.new()
+	_game_over_viewport.size = Vector2i(get_viewport().get_visible_rect().size)
+	_game_over_viewport.world_3d = World3D.new()
+	_game_over_viewport.msaa_3d = Viewport.MSAA_4X
+	_game_over_viewport.use_hdr_2d = false
+	_game_over_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vp_cont.add_child(_game_over_viewport)
+
+	_game_over_stage_root = Node3D.new()
+	_game_over_viewport.add_child(_game_over_stage_root)
+
+	var env := Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.04, 0.05, 0.07, 0.92)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.2, 0.25, 0.35)
+	env.ambient_light_energy = 0.5
+	env.glow_enabled = true
+	env.glow_intensity = 0.8
+
+	var env_node := WorldEnvironment.new()
+	env_node.environment = env
+	_game_over_stage_root.add_child(env_node)
+
+	var dais := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 2.0
+	cyl.bottom_radius = 2.2
+	cyl.height = 0.3
+	var dais_mat := StandardMaterial3D.new()
+	dais_mat.albedo_color = Color(0.10, 0.12, 0.16)
+	dais_mat.roughness = 0.6
+	dais_mat.metallic = 0.4
+	dais.mesh = cyl
+	dais.material_override = dais_mat
+	dais.position = Vector3(0.0, -0.15, 0.0)
+	_game_over_stage_root.add_child(dais)
+
+	var cam := Camera3D.new()
+	cam.fov = 40.0
+	cam.near = 0.05
+	cam.current = true
+	_game_over_stage_root.add_child(cam)
+	cam.look_at_from_position(Vector3(0.0, 1.15, 3.2), Vector3(0.0, 0.95, 0.0))
+
+	var light := DirectionalLight3D.new()
+	light.light_color = Color(1.0, 0.9, 0.75)
+	light.light_energy = 1.2
+	light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-20.0), deg_to_rad(135.0), 0.0))
+	_game_over_stage_root.add_child(light)
+
+	var rim := DirectionalLight3D.new()
+	rim.light_color = Color(0.3, 0.8, 1.0)
+	rim.light_energy = 0.7
+	rim.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-15.0), deg_to_rad(-45.0), 0.0))
+	_game_over_stage_root.add_child(rim)
+
+	# Bottom Action Bar on Stage 2
+	var stage_bot_panel := PanelContainer.new()
+	stage_bot_panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	stage_bot_panel.offset_left = 60
+	stage_bot_panel.offset_right = -60
+	stage_bot_panel.offset_top = -96
+	stage_bot_panel.offset_bottom = -24
+
+	var sb_style := _create_9patch_style("res://assets/UI_assets/panel_exquisite.png", 50.0, 45.0, 50.0, 45.0, 20.0, 14.0, 20.0, 14.0)
+	stage_bot_panel.add_theme_stylebox_override("panel", sb_style)
+	_stage_modal.add_child(stage_bot_panel)
+
+	var sb_hbox := HBoxContainer.new()
+	sb_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	sb_hbox.add_theme_constant_override("separation", 24)
+	stage_bot_panel.add_child(sb_hbox)
+
+	var drag_hint := Label.new()
+	drag_hint.text = "💡 鼠标在中央按住左键拖拽可 360° 旋转观察角色动作"
+	drag_hint.add_theme_font_size_override("font_size", 12)
+	drag_hint.modulate = Color(0.45, 0.75, 0.95, 0.8)
+	sb_hbox.add_child(drag_hint)
 
 	var retry_btn := Button.new()
 	retry_btn.text = "重新逃生挑战"
 	if _custom_font != null:
 		retry_btn.add_theme_font_override("font", _custom_font)
 	retry_btn.add_theme_font_size_override("font_size", 16)
-	retry_btn.custom_minimum_size = Vector2(130, 40)
-	retry_btn.pressed.connect(_start_escape_countdown)
-	btn_box.add_child(retry_btn)
+	retry_btn.custom_minimum_size = Vector2(150, 42)
+	retry_btn.pressed.connect(_on_stage_retry_pressed)
+	sb_hbox.add_child(retry_btn)
 
 	var menu_btn := Button.new()
-	menu_btn.text = "返回游戏大厅"
+	menu_btn.text = "返回主菜单"
 	if _custom_font != null:
 		menu_btn.add_theme_font_override("font", _custom_font)
 	menu_btn.add_theme_font_size_override("font_size", 16)
-	menu_btn.custom_minimum_size = Vector2(130, 40)
+	menu_btn.custom_minimum_size = Vector2(130, 42)
 	menu_btn.pressed.connect(func() -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		SceneLoader.change_scene(get_tree(), TITLE_SCENE, "返回主界面...")
 	)
-	btn_box.add_child(menu_btn)
+	sb_hbox.add_child(menu_btn)
+
+
+func _show_stage_one_report(i_win: bool, reason_text: String) -> void:
+	_match_is_win = i_win
+	_stage_modal.visible = false
+	_report_modal.visible = true
+	_report_modal.scale = Vector2(0.35, 0.35)
+	_report_modal.modulate = Color(1.0, 1.0, 1.0, 0.0)
+
+	var icon_path := "res://assets/UI_assets/freedom-dove.svg" if i_win else "res://assets/UI_assets/grim-reaper.svg"
+	if ResourceLoader.exists(icon_path):
+		_report_icon.texture = load(icon_path)
+		_report_icon.modulate = Color(0.3, 1.0, 0.5) if i_win else Color(1.0, 0.35, 0.35)
+
+	_report_title.text = "🏆 逃 生 成 功 (VICTORY)" if i_win else "💀 被 追 缉 者 捕 获 (DEFEATED)"
+	_report_title.modulate = Color(0.3, 1.0, 0.5) if i_win else Color(1.0, 0.35, 0.35)
+	_report_desc.text = reason_text
+
+	var m := int(CHASE_TIME_LIMIT if i_win else _survival_time) / 60
+	var s := fmod(CHASE_TIME_LIMIT if i_win else _survival_time, 60.0)
+	_report_time_lbl.text = "逃生耗时: %02d:%05.2f" % [m, s]
+
+	# Pop-in Elastic Animation
+	var tw_in := create_tween()
+	tw_in.set_parallel(true)
+	tw_in.tween_property(_report_modal, "scale", Vector2(1.0, 1.0), 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw_in.tween_property(_report_modal, "modulate:a", 1.0, 0.35)
+
+	# Text Pulse Tween
+	if _title_pulse_tween != null and _title_pulse_tween.is_valid():
+		_title_pulse_tween.kill()
+	_title_pulse_tween = create_tween().set_loops()
+	var base_col := Color(0.3, 1.0, 0.5) if i_win else Color(1.0, 0.35, 0.35)
+	var glow_col := Color(0.6, 1.3, 0.8) if i_win else Color(1.5, 0.5, 0.5)
+	_title_pulse_tween.tween_property(_report_title, "modulate", glow_col, 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_title_pulse_tween.tween_property(_report_title, "modulate", base_col, 0.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+
+
+func _on_report_continue_pressed() -> void:
+	if _title_pulse_tween != null and _title_pulse_tween.is_valid():
+		_title_pulse_tween.kill()
+
+	AudioManagerScript.play_voice_file("res://assets/voice/sfx/swing_mid_01.wav", -2.0)
+
+	var tw_out := create_tween()
+	tw_out.set_parallel(true)
+	tw_out.tween_property(_report_modal, "scale", Vector2(0.5, 0.5), 0.25).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw_out.tween_property(_report_modal, "modulate:a", 0.0, 0.25)
+	tw_out.chain().tween_callback(func():
+		_report_modal.visible = false
+		_stage_modal.visible = true
+		_show_game_over_character(_match_is_win)
+	)
+
+
+func _on_stage_retry_pressed() -> void:
+	_stage_modal.visible = false
+	_start_escape_countdown()
+
+
+func _show_game_over_character(i_win: bool) -> void:
+	if _game_over_stage_root == null:
+		return
+	if _game_over_hero_node != null and is_instance_valid(_game_over_hero_node):
+		_game_over_hero_node.queue_free()
+		_game_over_hero_node = null
+
+	var hero_path := "res://assets/characters/hero_1/hero_1.tscn"
+	var p_scene := load(hero_path) as PackedScene
+	if p_scene != null:
+		var inst := p_scene.instantiate() as Character
+		if inst != null:
+			_game_over_hero_node = inst
+			_game_over_hero_node.position = Vector3(0.0, 0.0, 0.0)
+			_game_over_hero_node.rotation.y = _stage_current_yaw
+			_game_over_stage_root.add_child(_game_over_hero_node)
+			if _game_over_hero_node.is_node_ready():
+				_play_match_end_anim(_game_over_hero_node, i_win)
+			else:
+				_game_over_hero_node.ready.connect(func(): _play_match_end_anim(_game_over_hero_node, i_win))
+
+
+func _play_match_end_anim(char_node: Character, i_win: bool) -> void:
+	if char_node == null:
+		return
+	if char_node.player == null:
+		char_node.player = AnimPipelineScript.first_of_class(char_node, "AnimationPlayer") as AnimationPlayer
+		char_node.skeleton = AnimPipelineScript.first_of_class(char_node, "Skeleton3D") as Skeleton3D
+		char_node.attach_libraries()
+
+	var anim_to_play := "yes" if i_win else "idle_no"
+	if not char_node.has_clip(anim_to_play):
+		anim_to_play = "dance" if i_win else "idle"
+
+	if char_node.has_clip(anim_to_play):
+		char_node.play(anim_to_play)
+		var resolved := char_node.resolve(anim_to_play)
+		if char_node.player != null and char_node.player.has_animation(resolved):
+			char_node.player.get_animation(resolved).loop_mode = Animation.LOOP_LINEAR

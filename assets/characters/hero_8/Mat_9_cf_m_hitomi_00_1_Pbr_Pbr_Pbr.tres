@@ -1,0 +1,15 @@
+﻿[gd_resource type="StandardMaterial3D" format=3 uid="uid://cep8spnonl1xp"]
+
+[ext_resource type="Texture2D" uid="uid://dlo27fxhelni8" path="res://assets/characters/hero_8/hero_8.fbm/Mat_9_cf_m_hitomi_00_1_Pbr_Pbr_Pbr_Diffuse.png" id="1_8fevv"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_9_cf_m_hitomi_00_1_Pbr_Pbr_Pbr"
+transparency = 4
+albedo_texture = ExtResource("1_8fevv")
+emission_enabled = true
+emission_energy_multiplier = 0.0

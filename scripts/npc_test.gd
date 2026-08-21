@@ -135,7 +135,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.6
+	env.ambient_light_energy = 0.45
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.glow_enabled = true
 
@@ -144,7 +144,7 @@ func _build_environment() -> void:
 	add_child(world_env)
 
 	var light := DirectionalLight3D.new()
-	light.light_energy = 2.2
+	light.light_energy = 1.2
 	light.shadow_enabled = true
 	light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(-35.0), 0.0))
 	add_child(light)

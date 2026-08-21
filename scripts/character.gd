@@ -34,11 +34,39 @@ var _attachment_nodes := {}
 func _ready() -> void:
 	player = AnimPipelineScript.first_of_class(self, "AnimationPlayer") as AnimationPlayer
 	skeleton = AnimPipelineScript.first_of_class(self, "Skeleton3D") as Skeleton3D
+	_setup_materials()
 	if player == null or skeleton == null:
 		push_error("%s: imported model has no AnimationPlayer or Skeleton3D" % name)
 		return
 	attach_libraries()
 	_setup_sockets()
+
+
+## Enforces double-sided toon shading without dark tint on all mesh surfaces.
+func _setup_materials() -> void:
+	var mesh_instances := find_children("*", "MeshInstance3D", true, false)
+	for mi_node in mesh_instances:
+		var mi := mi_node as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		for surf_idx in range(mi.mesh.get_surface_count()):
+			var mat := mi.get_active_material(surf_idx) as StandardMaterial3D
+			if mat == null:
+				continue
+			if mat.cull_mode != BaseMaterial3D.CULL_DISABLED:
+				mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			if mat.shading_mode != BaseMaterial3D.SHADING_MODE_PER_PIXEL:
+				mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+			if mat.diffuse_mode != BaseMaterial3D.DIFFUSE_TOON:
+				mat.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+			if mat.specular_mode != BaseMaterial3D.SPECULAR_DISABLED:
+				mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+			if mat.roughness != 1.0:
+				mat.roughness = 1.0
+			if mat.vertex_color_use_as_albedo:
+				mat.vertex_color_use_as_albedo = false
+			if mat.albedo_color.r != 1.0 or mat.albedo_color.g != 1.0 or mat.albedo_color.b != 1.0:
+				mat.albedo_color = Color(1.0, 1.0, 1.0, mat.albedo_color.a)
 
 
 func _setup_sockets() -> void:

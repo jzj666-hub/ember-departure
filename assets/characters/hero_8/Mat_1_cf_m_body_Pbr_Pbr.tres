@@ -1,0 +1,13 @@
+﻿[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/hero_8/hero_8_1.png" id="1_u0jiy"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_1_cf_m_body_Pbr_Pbr"
+transparency = 4
+albedo_texture = ExtResource("1_u0jiy")

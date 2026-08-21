@@ -209,7 +209,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.6
+	env.ambient_light_energy = 0.45
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.glow_enabled = true
 
@@ -218,7 +218,7 @@ func _build_environment() -> void:
 	add_child(world_env)
 
 	var light := DirectionalLight3D.new()
-	light.light_energy = 2.2
+	light.light_energy = 1.2
 	light.shadow_enabled = true
 	light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(-35.0), 0.0))
 	add_child(light)
@@ -955,7 +955,7 @@ func _on_recorder_state_changed(state: int, message: String) -> void:
 			SpecialPathRecorderScript.State.AIRBORNE_RECORDING:
 				_interactive_banner_sub.text = "🚀 腾空检测中！正在逐帧捕获空中抛物线轨迹..."
 			SpecialPathRecorderScript.State.COMPLETED:
-				_interactive_banner_sub.text = "🎯 成功着陆！正在提取动力学轨迹并生成路径..."
+				_interactive_banner_sub.text = "🎯 成功着陆！正在提取跳跃轨迹并生成路径..."
 
 
 func _redraw_special_paths() -> void:
@@ -1040,11 +1040,11 @@ func _recalculate_npc_path(target: Vector3) -> void:
 		if _tutorial_step == 2:
 			if _interactive_banner != null:
 				_interactive_banner_title.text = "🎯 新手任务 (3/8): 正在寻路..."
-				_interactive_banner_sub.text = "👀 人机已启动动力学规划寻路，请静静观察其移动路线与落点！"
+				_interactive_banner_sub.text = "👀 人机已启动智能寻路规划，请静静观察其移动路线与落点！"
 		elif _tutorial_step == 5:
 			if _interactive_banner != null:
 				_interactive_banner_title.text = "🎯 新手任务 (6/8): 见证飞跃..."
-				_interactive_banner_sub.text = "👀 观察 NPC 正在起跑并复刻你的动力学航迹飞跃断台！"
+				_interactive_banner_sub.text = "👀 观察 NPC 正在起跑并复刻你的跳跃航迹飞跃断台！"
 
 
 func _on_repath_requested(from_pos: Vector3, target: Vector3) -> void:
@@ -2057,7 +2057,7 @@ func _build_tutorial_page_1() -> void:
 
 func _build_tutorial_page_2() -> void:
 	var sub := Label.new()
-	sub.text = "【三、特殊跳跃 / 极限动力学轨迹录制】"
+	sub.text = "【三、特殊跳跃 / 极限身法航迹录制】"
 	if _custom_font != null:
 		sub.add_theme_font_override("font", _custom_font)
 	sub.add_theme_font_size_override("font_size", 18)
@@ -2067,7 +2067,7 @@ func _build_tutorial_page_2() -> void:
 	_add_tutorial_step(_tutorial_content_box, "R", "按 R 键就绪录制特殊跳跃",
 		"按 TAB 切换为角色试跑后，在悬崖起跳边缘停下脚步保持静止。按 R 键进入录制准备状态。")
 	_add_tutorial_step(_tutorial_content_box, "SPACE", "助跑起跳与自动航迹截取",
-		"顶部横幅提示【🟢 准备就绪，可以起跳】后，向目标高台全力助跑起跳。落地瞬间系统会自动从你起跳前的最后一帧零速度点开始，完整截取空中动力学航迹！")
+		"顶部横幅提示【🟢 准备就绪，可以起跳】后，向目标高台全力助跑起跳。落地瞬间系统会自动从你起跳前的最后一帧零速度点开始，完整截取空中跳跃航迹！")
 	_add_tutorial_step(_tutorial_content_box, "AI", "NPC (AI) 智能学习复现",
 		"录制成功的航迹会化为绿色轨迹线。AI 追缉或寻路时，到达该起跳点会自动无缝复现你的跳跃动作！")
 

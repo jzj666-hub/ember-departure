@@ -1,0 +1,12 @@
+﻿[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/hero_8/hero_8_26.png" id="1_5ieeo"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_26_acs_m_neck_bunnytie_Pbr_Pbr"
+albedo_texture = ExtResource("1_5ieeo")

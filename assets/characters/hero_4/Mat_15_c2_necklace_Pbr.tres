@@ -1,0 +1,12 @@
+﻿[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/hero_4/hero_4_14.png" id="1_gsv5k"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_15_c2_necklace_Pbr"
+albedo_texture = ExtResource("1_gsv5k")

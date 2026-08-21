@@ -547,6 +547,11 @@ func _status_label() -> Label:
 
 ## Returns physical keybind name string for intent triggers.
 static func _binding_of(trigger: String) -> String:
+	var km_script = load("res://scripts/keybind_manager.gd")
+	if km_script != null:
+		var txt: String = km_script.get_instance().binding_display_text(trigger)
+		if not txt.is_empty() and txt != "未绑定":
+			return txt
 	for index in PlayerIntentSource.MOUSE_BUTTONS:
 		if PlayerIntentSource.MOUSE_BUTTONS[index] == trigger:
 			match index:

@@ -158,12 +158,37 @@ static func play_sound(stream: AudioStream, volume_db: float = 0.0, pitch_scale:
 			return
 
 
-static func play_voice_file(file_path: String, volume_db: float = 0.0) -> void:
-	if not ResourceLoader.exists(file_path):
+static var _stream_cache: Dictionary = {}
+
+
+static func preload_sound(path: String) -> void:
+	if _stream_cache.has(path):
 		return
-	var stream := load(file_path) as AudioStream
+	if ResourceLoader.exists(path):
+		var s := load(path) as AudioStream
+		if s != null:
+			_stream_cache[path] = s
+
+
+static func preload_sounds(paths: Array) -> void:
+	for p in paths:
+		preload_sound(str(p))
+
+
+static func play_voice_file(file_path: String, volume_db: float = 0.0) -> void:
+	var stream: AudioStream = _stream_cache.get(file_path, null)
+	if stream == null:
+		if not ResourceLoader.exists(file_path):
+			return
+		stream = load(file_path) as AudioStream
+		if stream != null:
+			_stream_cache[file_path] = stream
 	if stream != null:
 		play_sound(stream, volume_db)
+
+
+static func play_sfx(file_path: String, volume_db: float = 0.0) -> void:
+	play_voice_file(file_path, volume_db)
 
 
 static func play_countdown(number: int, male: bool = true) -> void:

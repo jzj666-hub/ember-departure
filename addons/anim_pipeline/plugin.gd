@@ -91,6 +91,9 @@ func _rebuild() -> void:
 		print_rich("[b][Asset Pipeline][/b] %s now has %d clip(s): %s" % [
 			String(lib.path).get_file(), lib.clips.size(), ", ".join(lib.clips)])
 
+	for character in CharacterPipelineScript.list_characters():
+		CharacterPipelineScript.fix_character_materials(character.dir)
+
 	var scenes: Dictionary = CharacterPipelineScript.build_scenes()
 	for problem in scenes.problems:
 		push_warning("[Asset Pipeline] %s" % problem)

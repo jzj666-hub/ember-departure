@@ -120,14 +120,18 @@ Godot 资源*。游戏那边目前只有第三人称移动（走、跑、横移�
 | `scripts/character.gd` | 管线交付的接口：找到 AnimationPlayer 和 Skeleton3D，挂动作库，`play()` / `resolve()` / `clip_names()` / `has_clip()`，外加 `body_height` 和手部插槽 |
 | `scripts/main_menu.gd` | 主菜单，测试场景的入口 |
 | `scripts/playground.gd` | 第三人称试玩场景：环境、地面、几何体、生成角色、HUD |
-| `scripts/player_controller.gd` | 走 / 跑 / 横移 / 蹲行 / 撞墙刹停 / 跳跃 / 攀爬 / 下落 / 三段落地 / 翻滚 / 持械站姿 / 图驱动的攻击，运行时搭两层 AnimationTree |
+| `scripts/player_controller.gd` | 走 / 跑 / 横移 / 蹲行 / 撞墙刹停 / 跳跃 / 攀爬 / **跨小台阶** / 下落 / 三段落地 / 翻滚 / 持械站姿 / 图驱动的攻击，运行时搭两层 AnimationTree |
 | `scripts/character_intent.gd` | 一帧的「这个角色想干什么」，纯数据。战斗按键槽的名字表在这里 |
 | `scripts/intent_source.gd` | 这些决定从哪来的基类。玩家、bot、录像、剧情各写一份 |
 | `scripts/player_intent_source.gd` | 键鼠那一份。双击 Shift 的判定在这里（那是输入设备的性质，不是角色的），物理键 → 战斗槽的绑定表也在这里 |
-| `scripts/npc_intent_source.gd` | bot 那一份：跟随 NavGrid 计划、到墙脚发起攀爬、被挡住时沿墙切向绕行、卡死重算，外加脚本化任务序列。**攀爬高度、到达半径这些阈值全部从被驱动的 body 上读**，不写死 |
-| `scripts/nav_grid.gd` | 体素寻路图。每格 1 m，每列可以有多个可站立面（桥洞、悬挑）。**通行规则全部由 `PlayerController` 的导出参数推导**：跳跃顶点由 `jump_speed²/2g` 算，爬升上限取 `climb_max_height`，站立净空取 `_stand_height`；代价单位是**秒**，所以「绕 4 米」和「爬一次 1.5 秒」可以直接比。纯逻辑不持有场景节点，可 headless 测 |
+| `scripts/npc_intent_source.gd` | bot 那一份：跟随 `NavProvider` 计划、到墙脚发起攀爬、被挡住时沿墙切向绕行、卡死重算，外加脚本化任务序列。**攀爬高度、到达半径这些阈值全部从被驱动的 body 上读**，不写死。**只认接口不认后端**，全文没有 `NavGrid` 字样 |
+| `scripts/nav_provider.gd` | 寻路后端的基类，`IntentSource` 的同型物。契约六件：`find_path` / `is_path_valid` / `capability` / `stand_center` / `stand_foot` / `is_standable_at`，外加 `changed` 信号。`Move` 枚举和 `Capability`（连同 `JUMP_CLEAR` / `LIP_CLEAR` / `MAX_GAP_DROP` / `MAX_DROP`）住在这里 —— 它们是**身体**的性质，不是格子的。`find_path` 返回的是**世界坐标 + 每段怎么走**，所以换后端不用动执行器。守着它的是 `tools/_probe_nav_provider.gd` |
+| `scripts/nav_grid.gd` | `NavProvider` 的体素实现。每格 1 m，每列可以有多个可站立面（桥洞、悬挑）。**通行规则全部由 `PlayerController` 的导出参数推导**：跳跃顶点由 `jump_speed²/2g` 算，爬升上限取 `climb_max_height`，站立净空取 `_stand_height`；代价单位是**秒**，所以「绕 4 米」和「爬一次 1.5 秒」可以直接比。`NO_CELL` 和格子语义留在这一层，方格模式的场景（`chase_mode` / `map_editor` / `npc_test` / `chase_game` / `chase_multiplayer` / `special_path_recorder`）直接用它，不走接口。纯逻辑不持有场景节点，可 headless 测 |
+| `scripts/nav_mesh_provider.gd` | `NavProvider` 的连续实现，包 `NavigationServer3D`。给地形、路面、导入的建筑网格用。三件事和体素那份不同，都是**故意**的：①区域内全是 `Move.WALK`，多边形走廊没有「跨过了沟」这个概念，纵向通行只存在于手工布的 `NavigationLink3D`；②`stand_center()` 是恒等——连续地面没有格子中心可对齐；③查询靠「离网格多远」，所以水平和垂直**分开判**（垂直放宽到 3 m，否则上坡会被 `_void_between()` 读成悬崖）。还有一个 `_densify()`：把爬升超过体感台阶高度的腿切碎，否则执行器会把斜坡当台阶去爬。守着它的是 `tools/_probe_nav_mesh.gd` |
+| `scripts/navmesh_test.gd` | 连续地图演示场景：斜坡 + 旋转的墙 + 圆柱，**没有任何方块**。烘焙时 `cell_height` 是关键参数——它决定烘出来的面比真实碰撞面高多少，而这个偏移会直接叠到每条腿的 dy 上，粗了会让 NPC 在平地上起跳。0.05 够用 |
 | `scripts/npc_test.gd` | 人机测试场景：第一人称自由飞行搭建视角 + 准星 + 目标格高亮/放置预览，方块增删同步进 NavGrid，指挥人机寻路 |
 | `scripts/follow_camera.gd` | 第三人称相机：站立自由看，移动锁背后 |
+| `scripts/character_lod.gd` | 角色分层渲染。按相机距离分四档（近/中/远/隐），远处交给引擎的 `visibility_range` 剔除、关 `cast_shadow`、压 `lod_bias`，动画混合器改成手动推进并降频；离屏再单独降一档算力但**不动阴影**。挂载点只有一个：`PlayerController.setup()`。**只碰渲染和姿势求值，不碰 `_physics_process`、寻路和联网**，所以换档永远改不了玩法。headless 默认关闭 |
 
 **武器那一层**（配置、行为树、编辑器）：
 
@@ -319,11 +323,16 @@ Godot 资源*。游戏那边目前只有第三人称移动（走、跑、横移�
 | **给一把武器配残影** | 不改代码。武器测试场景 `K` 面板的「残影」组，存在武器自己的 JSON 的 `trail` 块里。`base`/`tip` 是**沿刃长的归一化比例**不是米 —— `HandheldItem` 已经把每把武器重锚成「握把在原点、刃朝 +Y」，所以同一对数字换武器、改 `item_scale`、翻转 grip 全都自动跟着走。颜色只填 `hue` + `hue_spread`，其余由 `TrailPalette` 推。想让某一招不出残影就把该节点的 `trail` 关掉；想只在斩击那几帧出就填该节点的 `trail_window`（秒，`[0,0]` 是全程） |
 | **调残影观感** | 立体感和渐变全在 `TrailPalette` 的五条常量里（`CORE_SAT_*` / `EDGE_*` / `CORE_ALPHA_GAIN` / `TAIL_WIDTH`），改那里对所有武器一起生效。**注意顶点色是 8 位、会在 1 处截断**：`energy` 不能走顶点色，它走 `WeaponTrail._refresh_material()` 里的 `albedo_color`。还有 `energy > 1` 要看得见就必须开 `Environment.glow_enabled`，两个场景的 `_build_environment()` 里都有 |
 | **正式场景里装备武器** | `EquipmentManager.equip_by_id("Abyss Blade")`，配置自动从盘上读 |
+| **调跨台阶的高度** | `PlayerController.step_max_height`（默认 0.4）。**三个数必须对齐**：烘焙的 `agent_max_climb` ≤ 它 ≤ `climb_min_height`。网格按 `agent_max_climb` 规划路线，身体按 `step_max_height` 执行，高于 `climb_min_height` 才轮到攀爬 —— 网格承诺得比身体能做的多，NPC 就会走进路缘石里再也出不来（那正是加这条规则之前的症状）。改完跑 `tools/_probe_step_up.gd` |
 | **接 bot / 录像 / 联机** | 写一个 `IntentSource` 子类，赋给 `PlayerController.intent_source`。或者设成 `null`，直接调 `drive()` / `request_jump()` / `request_roll()` / `request_button()` |
+| **加一种地图 / 寻路后端**（连续地形、navmesh） | 写一个 `NavProvider` 子类，`bind_nav_grid()` 给 NPC。执行器一行都不用改 —— 它只读 `find_path()` 返回的世界坐标和 `moves`。**参照实现见 `nav_mesh_provider.gd`**，那里记了三个踩过的坑：烘焙 `cell_height` 太粗会让 NPC 在平地起跳、垂直容差太紧会把上坡读成悬崖、路点太疏会被当成台阶去爬。两个还没解的：navmesh 上 `moves` 没有天然来源，跳跃段要靠 `NavigationLink3D` 手工标；`special_paths` 现在按 `Vector3i` 对索引，迁过去要改成按 link id。方格那套照旧走 `NavGrid`，两者互不影响 |
 | **改假人**（武器测试场景 `F1`） | 血量 / 受击胶囊 / 韧性 / 特效寿命都是 `DummyTarget` 的常量。**受击 clip 名必须是动画库的 key（snake_case，如 `hit_chest`），不是 `.tres` 里的 `resource_name`（`Hit_Chest`）** —— 写错了 `resolve()` 返回空，身体会一直停在 rest pose 上。反应分三档：轻打 `hit_head`/`hit_chest`，韧性（`KNOCKDOWN_POISE`，按伤害累积、按 `POISE_RECOVERY` 回复）打破才播倒地 `hit_knockback`，倒地必须接起身 `lay_to_idle`，否则人会瞬间弹起来。所有转场都要给 `Character.play()` 传 blend 时间。**加新反应 clip 前先跑 `tools/_probe_reactions.gd`** 看它对髋高做了什么 —— 库里 `hit_knockback` 是倒地不是踉跄 |
 | **改假人的判定** | `weapon_test._check_dummy_hit()`：刀刃两个 anchor 连成的线段（加 `BLADE_PAD` 厚度）vs 假人胶囊，**按接触上升沿计数，不是按 stroke** —— 一个 clip 里劈三下就该判三次。另外补测了上一帧刀尖到这一帧刀尖的扫掠段，防止快刀一帧跨过胶囊。改完跑 `tools/_probe_dummy.gd` |
 | **换掉某段落地 clip** | 换完跑 `tools/_probe_landing.gd`，把新的 `t(min)` 填进对应的 `land_*_lead` |
 | 改试玩场景里能爬 / 能摔的几何体 | `playground.gd` 的 `_build_parkour()` |
+| **调角色分层渲染的档位** | `CharacterLOD` 的导出参数：`near_end` / `mid_end` / `cull_end` 是档界（米），`mid_hz` / `far_hz` 是各档动画推进频率，`shadow_tier` 是最后一个还投影的档，`offscreen_tier` 是离屏降到哪一档。改完跑 `tools/_probe_character_lod.gd` |
+| **给某个不走 `PlayerController` 的角色也分档** | `CharacterLOD.attach(visual)`，第二个参数留空就自己找 AnimationTree / AnimationPlayer。重复调用只会 rescan，不会挂第二个 |
+| **临时全关分层渲染做对比** | `CharacterLOD.set_enabled(false)`，会把每个角色恢复成 `attach()` 时的样子。单个角色钉死某一档用 `lod.forced = CharacterLOD.Tier.FAR` |
 
 ## 别碰的四条线
 

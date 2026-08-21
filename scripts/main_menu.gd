@@ -31,28 +31,41 @@ const DEV_ENTRIES := [
 		"scene": "res://scenes/map_editor.tscn",
 	},
 	{
+		"title": "连续地图寻路测试 / Continuous Map Navigation Test",
+		"blurb": "不含任何方块的地图：斜坡、旋转的墙、圆柱。NPC 走的是烘焙出来的 NavigationMesh，寻路后端换成 NavMeshProvider，而 AI 执行器一行未改。WASD/QE 飞行，准星对准地面 LMB 指定目的地。",
+		"scene": "res://scenes/navmesh_test.tscn",
+	},
+	{
 		"title": "追缉模式底层调试 / Raw Pursuit Debug",
 		"blurb": "1v1 追缉逃生底层调试场景（包含调试红柱与直接参数监视）。",
 		"scene": "res://scenes/chase_mode.tscn",
+	},
+	{
+		"title": "技能与特效演练场 / Skill & VFX Lab",
+		"blurb": "实时技能与特效参数微调靶场。支持赛博瞬移与高频抖动残影、全息破碎消散，支持 0.2x/0.5x 慢放调试。",
+		"scene": "res://scenes/skill_vfx_lab.tscn",
 	},
 	{
 		"title": "局域网多人追缉大厅 / LAN Multiplayer Pursuit Lobby",
 		"blurb": "1v1 局域网/P2P 多人对战追缉模式大厅，支持延迟快照插值与双方 Tab 自由上帝视角 A* 战术规划。",
 		"scene": "res://scenes/player_client/multiplayer_lobby.tscn",
 	},
+	{
+		"title": "庄园探索与秘契商舍 / Manor Estate & Ember Merchant",
+		"blurb": "连续自然起伏地形庄园，包含完整欧风建筑群、植被林地、双向无缝传送门与室内商舍（支持金币与灰烬凭证兑换）。",
+		"scene": "res://scenes/manor_estate.tscn",
+	},
 ]
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
-const UpdateDialogScript = preload("res://scripts/updater/update_dialog.gd")
-const UpdaterScript = preload("res://scripts/updater/updater.gd")
 const VIDEO_OGV_PATH := "res://assets/UI_assets/主界面动画.ogv"
+
+static var open_dev_menu_on_enter: bool = false
 
 var _custom_font: Font = null
 var _mode_select_box: VBoxContainer
 var _dev_box: VBoxContainer
 var _video_player: VideoStreamPlayer
-var _update_dialog: UpdateDialog = null
-var _version_btn: Button = null
 
 
 func _ready() -> void:
@@ -62,17 +75,15 @@ func _ready() -> void:
 	if ResourceLoader.exists(FONT_PATH):
 		_custom_font = load(FONT_PATH) as Font
 	_build_ui()
-	_trigger_startup_update_check()
 
+	if open_dev_menu_on_enter:
+		open_dev_menu_on_enter = false
+		_show_dev_menu()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
-			if _update_dialog != null and is_instance_valid(_update_dialog):
-				_update_dialog._on_skip_pressed()
-				get_viewport().set_input_as_handled()
-				return
 			if _dev_box != null and _dev_box.visible:
 				_show_mode_select()
 				get_viewport().set_input_as_handled()
@@ -147,7 +158,7 @@ func _build_ui() -> void:
 	# Developer Sandbox Big Button
 	var btn_dev := _make_big_mode_button(
 		"打开 开发者工作台 (Developer Sandbox)",
-		"底层动作调试、骨骼绑定测试、武器参数调整、NPC 动力学寻路测试",
+		"底层动作调试、骨骼绑定测试、武器参数调整、NPC 智能寻路测试",
 		"res://assets/UI_assets/gear-hammer.svg",
 		Color(0.25, 0.70, 0.95)
 	)
@@ -164,25 +175,6 @@ func _build_ui() -> void:
 	quit_btn.custom_minimum_size = Vector2(0, 40)
 	quit_btn.pressed.connect(func() -> void: get_tree().quit())
 	_mode_select_box.add_child(quit_btn)
-
-	# Bottom Version & Manual Update Checker
-	var bot_box := HBoxContainer.new()
-	bot_box.set_anchors_preset(PRESET_BOTTOM_WIDE)
-	bot_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	bot_box.offset_bottom = -16
-	add_child(bot_box)
-
-	var local_v := str(UpdaterScript.get_local_version_info().get("version", "v1.0.0"))
-	_version_btn = Button.new()
-	_version_btn.text = "📦 版本: %s (Gitee 同步) · 点击检查更新" % local_v
-	_version_btn.flat = true
-	if _custom_font != null:
-		_version_btn.add_theme_font_override("font", _custom_font)
-	_version_btn.add_theme_font_size_override("font_size", 13)
-	_version_btn.modulate = Color(0.65, 0.75, 0.90, 0.8)
-	_version_btn.pressed.connect(_on_manual_check_pressed)
-	bot_box.add_child(_version_btn)
-
 
 	# --- Developer Scenes Panel ---
 	_dev_box = VBoxContainer.new()
@@ -306,16 +298,23 @@ func _make_dev_entry(entry: Dictionary) -> Control:
 
 
 func _show_dev_menu() -> void:
+	open_dev_menu_on_enter = true
 	_mode_select_box.visible = false
 	_dev_box.visible = true
 
 
 func _show_mode_select() -> void:
+	open_dev_menu_on_enter = false
 	_dev_box.visible = false
 	_mode_select_box.visible = true
 
 
 func _open(scene_path: String) -> void:
+	if scene_path != PLAYER_CLIENT_SCENE:
+		open_dev_menu_on_enter = true
+	else:
+		open_dev_menu_on_enter = false
+
 	if scene_path == "res://scenes/playground.tscn":
 		var playground_script = load("res://scripts/playground.gd")
 		if playground_script != null:
@@ -329,37 +328,3 @@ func _spacer(height: int) -> Control:
 	var node := Control.new()
 	node.custom_minimum_size = Vector2(0, height)
 	return node
-
-
-func _trigger_startup_update_check() -> void:
-	UpdaterScript.check_for_updates(self, func(has_update: bool, remote_info: Dictionary) -> void:
-		if has_update:
-			_show_update_dialog(remote_info)
-	)
-
-
-func _on_manual_check_pressed() -> void:
-	if _version_btn != null:
-		_version_btn.text = "⏳ 正在检查 Gitee 最新版本..."
-	UpdaterScript.check_for_updates(self, func(has_update: bool, remote_info: Dictionary) -> void:
-		var local_v := str(UpdaterScript.get_local_version_info().get("version", "v1.0.0"))
-		if _version_btn != null:
-			_version_btn.text = "📦 版本: %s (Gitee 同步) · 点击检查更新" % local_v
-		if has_update:
-			_show_update_dialog(remote_info)
-		else:
-			# Even if current is up to date, show dialog with local changelog or feedback
-			_show_update_dialog(remote_info if not remote_info.is_empty() else UpdaterScript.get_local_version_info())
-	)
-
-
-func _show_update_dialog(remote_info: Dictionary) -> void:
-	if _update_dialog != null and is_instance_valid(_update_dialog):
-		return
-	_update_dialog = UpdateDialogScript.new()
-	add_child(_update_dialog)
-	_update_dialog.setup_data(remote_info)
-	_update_dialog.dismissed.connect(func() -> void:
-		_update_dialog = null
-	)
-

@@ -100,7 +100,7 @@ func _build_environment() -> void:
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 0.55
+	environment.ambient_light_energy = 0.65
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.ssao_enabled = true
 	# Without this the trail's `energy` above 1 is indistinguishable from 1: the
@@ -121,7 +121,7 @@ func _build_environment() -> void:
 	node.environment = environment
 	add_child(node)
 
-	add_child(_make_light("KeyLight", -48.0, -35.0, 2.4, true))
+	add_child(_make_light("KeyLight", -48.0, -35.0, 1.3, true))
 	add_child(_make_light("FillLight", -18.0, 145.0, 0.5, false))
 
 
@@ -662,7 +662,7 @@ func _build_tutorial_complete_dialog() -> void:
 	vbox.add_child(title)
 
 	var desc := Label.new()
-	desc.text = "恭喜您已全面掌握物理动力学角色引擎的核心动作：\n• WASD 四向位移与 Shift 极速冲刺\n• 空格跳跃与 2 格高台攀登翻越\n• Ctrl 战术潜行下蹲与双击 Shift 翻滚闪避\n• F3 第一/第三人称视界切换\n\n现在您可以尽情在沙盒中自由体验与探索！"
+	desc.text = "恭喜您已全面掌握极限身法系统的核心动作：\n• WASD 四向位移与 Shift 极速冲刺\n• 空格跳跃与 2 格高台攀登翻越\n• Ctrl 战术潜行下蹲与双击 Shift 翻滚闪避\n• F3 第一/第三人称视界切换\n\n现在您可以尽情在沙盒中自由体验与探索！"
 	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	if _custom_font != null:
@@ -763,8 +763,9 @@ func _process(delta: float) -> void:
 	if _debug_panel == null or not _debug_panel.visible or _state_label == null or _player == null:
 		return
 	var mode_str := "[第一视角]" if (_camera != null and bool(_camera.get("is_first_person"))) else "[第三视角]"
-	_state_label.text = "%s %s   %.2f m/s   高度 %.2f m\n站立时鼠标只转视角；一移动，角色转向视角方向" % [
-		mode_str, _player.state_name(), _player.speed(), _player.global_position.y]
+	_state_label.text = "%s %s   %.2f m/s   高度 %.2f m\n%s\n站立时鼠标只转视角；一移动，角色转向视角方向" % [
+		mode_str, _player.state_name(), _player.speed(), _player.global_position.y,
+		CharacterLOD.debug_line()]
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -781,4 +782,3 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_TAB:
 			_index = (_index + 1) % _characters.size()
 			_spawn_character()
-

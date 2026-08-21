@@ -1,7 +1,7 @@
 class_name NPCIntentSource
 extends IntentSource
-## Standardized NPC intent source: follows a NavGrid plan, climbs what the body
-## can climb, steers around what blocks it, and runs scripted task sequences.
+## Standardized NPC intent source: follows a NavProvider plan, climbs what the
+## body can climb, steers around what blocks it, and runs scripted task sequences.
 ##
 ## Invariant: every capability threshold used here is read off the driven body,
 ## never written as a literal - the plan and the execution have to agree.
@@ -18,7 +18,7 @@ signal build_requested(coord: Vector3i)
 
 ## Target path points in world space.
 var _path := PackedVector3Array()
-## How each point is reached, as NavGrid.Move. Parallel to _path when present.
+## How each point is reached, as NavProvider.Move. Parallel to _path when present.
 var _moves := PackedInt32Array()
 var _path_index := 0
 var _target_pos := Vector3.ZERO
@@ -75,7 +75,7 @@ var _repath_queued := false
 var _is_climbing := false
 var _was_climbing := false
 var _repath_pending_during_climb := false
-var _nav_grid: NavGrid = null
+var _nav_grid: NavProvider = null
 var _last_body_pos := Vector3.ZERO
 
 ## Gap-jump execution. See _drive_jump().
@@ -152,7 +152,7 @@ const REPLAY_SETTLE_MAX := 3.0
 ## Replays of one recording before ordinary steering takes the leg instead.
 const REPLAY_MAX_ATTEMPTS := 3
 
-## Waypoint index -> recorded path dict, from NavGrid.find_path().special_links.
+## Waypoint index -> recorded path dict, from NavProvider.find_path().special_links.
 var _special_links := {}
 var _replay_phase := ReplayPhase.NONE
 var _replay_traj: Array = []
@@ -183,16 +183,16 @@ var _is_sequence_running := false
 var _sequence_status := "Idle"
 
 
-## Bind NavGrid instance for map change observation and proactive path validation.
-func bind_nav_grid(nav: NavGrid) -> void:
-	if _nav_grid != null and _nav_grid.is_connected("grid_changed", _on_grid_changed):
-		_nav_grid.grid_changed.disconnect(_on_grid_changed)
+## Bind nav backend for map change observation and proactive path validation.
+func bind_nav_grid(nav: NavProvider) -> void:
+	if _nav_grid != null and _nav_grid.is_connected("changed", _on_nav_changed):
+		_nav_grid.changed.disconnect(_on_nav_changed)
 	_nav_grid = nav
 	if _nav_grid != null:
-		_nav_grid.grid_changed.connect(_on_grid_changed)
+		_nav_grid.changed.connect(_on_nav_changed)
 
 
-func _on_grid_changed() -> void:
+func _on_nav_changed() -> void:
 	if not _has_target:
 		return
 	if _is_climbing:
@@ -218,7 +218,7 @@ func set_path(path: PackedVector3Array, target: Vector3) -> void:
 	set_plan(path, PackedInt32Array(), target, true)
 
 
-## Install a NavGrid plan. `moves` may be empty; `complete` false means the path
+## Install a NavProvider plan. `moves` may be empty; `complete` false means the path
 ## stops at the nearest reachable cell instead of `target`. `special_links` maps
 ## a waypoint index to the recording its leg is replayed from.
 ## Post: _path_index == 0, obstruction state cleared.
@@ -243,8 +243,8 @@ func set_plan(path: PackedVector3Array, moves: PackedInt32Array, target: Vector3
 
 	_path_index = 0
 	if _path.size() >= 2:
-		var first_move := _moves[1] if _moves.size() > 1 else NavGrid.Move.WALK
-		var is_action_leg := (first_move == NavGrid.Move.JUMP or first_move == NavGrid.Move.SPECIAL_JUMP or first_move == NavGrid.Move.CLIMB or _leg_is_gap_jump(1))
+		var first_move := _moves[1] if _moves.size() > 1 else NavProvider.Move.WALK
+		var is_action_leg := (first_move == NavProvider.Move.JUMP or first_move == NavProvider.Move.SPECIAL_JUMP or first_move == NavProvider.Move.CLIMB or _leg_is_gap_jump(1))
 		if not is_action_leg and not _special_links.has(1):
 			var p0 := _path[0]
 			var flat_dist := Vector2(p0.x - _last_body_pos.x, p0.z - _last_body_pos.z).length()
@@ -253,7 +253,7 @@ func set_plan(path: PackedVector3Array, moves: PackedInt32Array, target: Vector3
 				_path_index = 1
 
 
-## Install a plan straight from NavGrid.find_path().
+## Install a plan straight from NavProvider.find_path().
 func set_plan_result(result: Dictionary) -> void:
 	set_plan(result.get("points", PackedVector3Array()),
 		result.get("moves", PackedInt32Array()),
@@ -506,9 +506,9 @@ func _cache_limits(body: Node) -> void:
 	_walk_speed = _num(body, "walk_speed", _walk_speed)
 	_run_speed = _num(body, "run_speed", _run_speed)
 	var jump_speed: float = _num(body, "jump_speed", 4.7)
-	_jump_rise = maxf((jump_speed * jump_speed) / (2.0 * maxf(gravity, 0.01)) - NavGrid.JUMP_CLEAR, 0.0)
+	_jump_rise = maxf((jump_speed * jump_speed) / (2.0 * maxf(gravity, 0.01)) - NavProvider.JUMP_CLEAR, 0.0)
 	# The distance _find_ledge() reaches forward from the body's centre.
-	_radius = NavGrid.body_radius(body, _radius)
+	_radius = NavProvider.body_radius(body, _radius)
 	_accel = _num(body, "acceleration", _accel)
 	_reach = _radius + _num(body, "climb_reach", 0.45)
 	# A rise under this is a place already stood on, not a step to take.
@@ -627,10 +627,10 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 		return
 
 	if _direct_chase_mode:
-		var flat := Vector3(_target_pos.x - body_pos.x, 0.0, _target_pos.z - body_pos.z)
-		var horiz := flat.length()
+		var direct_flat := Vector3(_target_pos.x - body_pos.x, 0.0, _target_pos.z - body_pos.z)
+		var horiz := direct_flat.length()
 		if horiz > 0.02:
-			var wanted := flat / horiz
+			var wanted := direct_flat / horiz
 			var dir := _steer(char_body, body_pos, wanted, delta)
 			intent.heading = atan2(dir.x, dir.z)
 			intent.move = Vector2(0.0, 1.0)
@@ -729,7 +729,7 @@ func _drive_navigation(char_body: CharacterBody3D, body_pos: Vector3, delta: flo
 ## is shorter than either. Every misaligned frame of air steering therefore bleeds
 ## speed, which is why a jump that left the ground at full pace could still come
 ## up short. Asking for nothing freezes the horizontal velocity, and the flight
-## is then exactly the arc NavGrid planned.
+## is then exactly the arc NavProvider planned.
 func _drive_flight(intent: CharacterIntent) -> void:
 	if _path_index < _path.size() and _jump_start_speed >= 0.1:
 		var wp := _path[_path_index]
@@ -775,10 +775,7 @@ func _begin_landing_center(body_pos: Vector3, then_repath: bool) -> bool:
 ## Centre of the cell the body stands in, at the body's own height.
 func _cell_center(pos: Vector3) -> Vector3:
 	if _nav_grid != null:
-		var node := _nav_grid.standing_node(pos)
-		if node != NavGrid.NO_CELL:
-			var f := NavGrid.foot(node)
-			return Vector3(f.x, pos.y, f.z)
+		return _nav_grid.stand_center(pos)
 	return Vector3(floor(pos.x) + 0.5, pos.y, floor(pos.z) + 0.5)
 
 
@@ -983,9 +980,9 @@ func _drive_jump(char_body: CharacterBody3D, body_pos: Vector3, wanted: Vector3,
 
 	var center_pt := start_wp
 	if _nav_grid != null:
-		var node := _nav_grid.standing_node(body_pos)
-		if node != NavGrid.NO_CELL:
-			center_pt = NavGrid.foot(node)
+		var f := _nav_grid.stand_foot(body_pos)
+		if f != NavProvider.NO_POINT:
+			center_pt = f
 
 	var is_extreme := _is_extreme_gap_jump(_path_index)
 	var is_offset_extreme := _is_offset_extreme_gap_jump(_path_index)
@@ -1126,7 +1123,7 @@ func _leg_is_gap_jump(idx: int) -> bool:
 	# Waypoints in touching cells are a step, whatever the plan calls them.
 	if Vector2(b.x - a.x, b.z - a.z).length() < 1.2:
 		return false
-	if idx < _moves.size() and (_moves[idx] == NavGrid.Move.JUMP or _moves[idx] == NavGrid.Move.SPECIAL_JUMP):
+	if idx < _moves.size() and (_moves[idx] == NavProvider.Move.JUMP or _moves[idx] == NavProvider.Move.SPECIAL_JUMP):
 		return true
 	return _void_between(a, b)
 
@@ -1135,7 +1132,7 @@ func _leg_is_gap_jump(idx: int) -> bool:
 func _is_extreme_gap_jump(idx: int) -> bool:
 	if idx <= 0 or idx >= _path.size():
 		return false
-	if idx < _moves.size() and _moves[idx] == NavGrid.Move.SPECIAL_JUMP:
+	if idx < _moves.size() and _moves[idx] == NavProvider.Move.SPECIAL_JUMP:
 		return true
 	var a := _path[idx - 1]
 	var b := _path[idx]
@@ -1184,10 +1181,9 @@ func _void_between(a: Vector3, b: Vector3) -> bool:
 		return false
 	var span := Vector2(b.x - a.x, b.z - a.z)
 	var samples := int(ceil(span.length() / RIM_STEP))
-	var level := int(floor(a.y + 0.05))
 	for i in range(1, samples):
 		var p := Vector2(a.x, a.z) + span * (float(i) / float(samples))
-		if not _nav_grid.is_standable(Vector3i(int(floor(p.x)), level, int(floor(p.y)))):
+		if not _nav_grid.is_standable_at(Vector3(p.x, a.y, p.y)):
 			return true
 	return false
 
@@ -1198,11 +1194,10 @@ func _void_between(a: Vector3, b: Vector3) -> bool:
 func _runway_ahead(pos: Vector3, dir: Vector3) -> float:
 	if _nav_grid == null:
 		return RIM_LIMIT
-	var level := int(floor(pos.y + 0.05))
 	var s := 0.0
 	while s < RIM_LIMIT:
 		var p := pos + dir * (s + RIM_STEP)
-		if not _nav_grid.is_standable(Vector3i(int(floor(p.x)), level, int(floor(p.z)))):
+		if not _nav_grid.is_standable_at(Vector3(p.x, pos.y, p.z)):
 			return s
 		s += RIM_STEP
 	return RIM_LIMIT

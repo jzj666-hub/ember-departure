@@ -1,10 +1,10 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://br0iqowj2dpiy"]
 
-[ext_resource type="Script" path="res://scripts/character.gd" id="1_8cfsv"]
-[ext_resource type="AnimationLibrary" path="res://assets/animations/shared_animations.tres" id="2_tpwwr"]
-[ext_resource type="PackedScene" path="res://assets/characters/hero_2/autorig_actor.fbx" id="3_acqap"]
+[ext_resource type="Script" uid="uid://ch0rg3stebnja" path="res://scripts/character.gd" id="1_8cfsv"]
+[ext_resource type="AnimationLibrary" uid="uid://dju2rv8spr4dr" path="res://assets/animations/shared_animations.tres" id="2_tpwwr"]
+[ext_resource type="PackedScene" uid="uid://dae6wg7x6j3bv" path="res://assets/characters/hero_2/autorig_actor.fbx" id="3_acqap"]
 
-[node name="Hero2" type="Node3D" unique_id=847247124]
+[node name="Hero2" type="Node3D" unique_id=1575643192]
 script = ExtResource("1_8cfsv")
 character_id = "hero_2"
 body_height = 1.75

@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://sxfa3q32yaxe"]
+
+[ext_resource type="Script" uid="uid://ch0rg3stebnja" path="res://scripts/character.gd" id="1_kohyx"]
+[ext_resource type="AnimationLibrary" uid="uid://dju2rv8spr4dr" path="res://assets/animations/shared_animations.tres" id="2_gfjsi"]
+[ext_resource type="PackedScene" uid="uid://038w5d6fc3th" path="res://assets/characters/hero_11/hero_11.fbx" id="3_8ucyj"]
+
+[node name="Hero11" type="Node3D" unique_id=1087994758]
+script = ExtResource("1_kohyx")
+character_id = "hero_11"
+body_height = 1.75
+shared_animations = ExtResource("2_gfjsi")
+
+[node name="Model" type="Node3D" parent="." unique_id=114851182 instance=ExtResource("3_8ucyj")]

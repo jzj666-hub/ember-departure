@@ -1,0 +1,12 @@
+﻿[gd_resource type="StandardMaterial3D" format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/hero_10/hero_10_8.png" id="1_0htah"]
+
+[resource]
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+roughness = 1.0
+albedo_color = Color(1, 1, 1, 1)
+resource_name = "Mat_8_Pupil_Pbr"
+albedo_texture = ExtResource("1_0htah")

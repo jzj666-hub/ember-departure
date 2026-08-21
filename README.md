@@ -59,6 +59,7 @@ Godot 4.7 项目。采用 ActorCore / AccuRig 自动绑定模型，通过重定�
 *   **角色绑定姿势差异比对**：`godot --headless --path . --script tools/compare_rest.gd`
 *   **寻路规则回归**：`godot --headless --path . --script res://tools/_probe_nav_grid.gd` —— 纯逻辑，验证爬升/落差上限、体素化（桥洞）、头顶净空、禁止穿角、不可达回退，外加重建与搜索耗时。
 *   **人机寻路实跑**：`godot --headless --path . --script res://tools/_probe_npc_nav.gd` —— 真跑场景，验证人机能翻过可爬的墙、穿过隧道、绕出 L 形凹角、被封死时如实上报。
+*   **角色分层渲染**：`godot --headless --path . --script res://tools/_probe_character_lod.gd` —— 距离分档与粘滞、各档往网格和混合器写了什么、隐档姿势是否真冻结、关掉之后是否原样还原。
 
 ---
 
@@ -71,6 +72,7 @@ Godot 4.7 项目。采用 ActorCore / AccuRig 自动绑定模型，通过重定�
 *   `assets/retarget/`：骨骼重定向映射 `.tres` 模版。
 *   `scripts/character.gd`：角色组件逻辑入口，不被管线覆盖。
 *   `scripts/player_controller.gd`：Locomotion、状态机与运行时 AnimationTree 构建/驱动。
+*   `scripts/character_lod.gd`：角色分层渲染。按相机距离和是否在画面里分四档，远处交给引擎剔除、关阴影、降动画推进频率。
 *   `scripts/nav_grid.gd`：体素寻路图，通行规则全部由 `PlayerController` 的能力参数推导。
 *   `scripts/npc_intent_source.gd`：bot 的决策源，跟随寻路计划并处理攀爬、绕障与卡死重算。
 *   `scripts/weapon_config.gd`：武器 JSON 配置读写、合并继承与规范修复。

@@ -513,9 +513,9 @@ func _show_impact(hit_pos: Vector3, swing_dir: Vector3) -> void:
 	var arc_mat := _arc_mats[i]
 	var flash_mat := _flash_mats[i]
 
-	var basis := _impact_basis(hit_pos, swing_dir)
+	var impact_basis := _impact_basis(hit_pos, swing_dir)
 	# Toward the camera by a hair: two marks in one frame would z-fight.
-	var at := hit_pos + basis.z * 0.02
+	var at := hit_pos + impact_basis.z * 0.02
 	# Half the crescents curve the other way, or every hit reads identical.
 	var flip := 1.0 if randf() < 0.5 else -1.0
 	var spin := Basis.from_scale(Vector3(1.0, flip, 1.0))
@@ -524,20 +524,20 @@ func _show_impact(hit_pos: Vector3, swing_dir: Vector3) -> void:
 	arc_mat.albedo_color.a = 1.0
 	flash.visible = true
 	flash_mat.albedo_color.a = 1.0
-	flash.global_transform = Transform3D(basis * Basis.from_scale(Vector3.ONE * 0.55), at)
+	flash.global_transform = Transform3D(impact_basis * Basis.from_scale(Vector3.ONE * 0.55), at)
 
 	var tween := create_tween()
 	tween.set_parallel(true)
 	# Opens along the cut while thinning across it - reads as speed.
 	tween.tween_method(func(s: float) -> void:
 			arc.global_transform = Transform3D(
-				basis * spin * Basis.from_scale(
+				impact_basis * spin * Basis.from_scale(
 					Vector3(0.75 + s * 0.55, (1.0 - s * 0.45) * flip, 1.0)), at),
 		0.0, 1.0, ARC_LIFE).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
 	tween.tween_property(arc_mat, "albedo_color:a", 0.0, ARC_LIFE).set_ease(Tween.EASE_IN)
 	tween.tween_method(func(s: float) -> void:
 			flash.global_transform = Transform3D(
-				basis * Basis.from_scale(Vector3.ONE * (0.55 + s * 1.15)), at),
+				impact_basis * Basis.from_scale(Vector3.ONE * (0.55 + s * 1.15)), at),
 		0.0, 1.0, FLASH_LIFE).set_ease(Tween.EASE_OUT)
 	tween.tween_property(flash_mat, "albedo_color:a", 0.0, FLASH_LIFE)
 	tween.chain().tween_callback(func() -> void:

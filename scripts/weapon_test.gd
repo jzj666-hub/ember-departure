@@ -228,7 +228,7 @@ func _build_environment() -> void:
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 0.6
+	environment.ambient_light_energy = 0.45
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.ssao_enabled = true
 	# Without this the trail's `energy` above 1 is indistinguishable from 1: the
@@ -244,8 +244,8 @@ func _build_environment() -> void:
 	node.environment = environment
 	add_child(node)
 
-	add_child(_make_light("KeyLight", -45.0, -30.0, 2.0, true))
-	add_child(_make_light("FillLight", -15.0, 150.0, 0.5, false))
+	add_child(_make_light("KeyLight", -45.0, -30.0, 1.2, true))
+	add_child(_make_light("FillLight", -15.0, 150.0, 0.4, false))
 
 
 func _make_light(light_name: String, pitch_deg: float, yaw_deg: float,

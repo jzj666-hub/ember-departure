@@ -137,7 +137,10 @@ func _play(clip: String) -> void:
 	_current_clip = clip
 	var longest := 0.0
 	for character in _characters:
-		var anim := character.player.get_animation(clip)
+		var full := character.resolve(clip)
+		if full == "" or character.player == null or not character.player.has_animation(full):
+			continue
+		var anim := character.player.get_animation(full)
 		if anim == null:
 			continue
 		anim.loop_mode = Animation.LOOP_LINEAR if _loop else Animation.LOOP_NONE
@@ -169,7 +172,10 @@ func _refresh_info(clip: String) -> void:
 
 ## Count and print resolved animation track count.
 func _binding_line(character: Character, clip: String) -> String:
-	var anim := character.player.get_animation(clip)
+	var full := character.resolve(clip)
+	if full == "" or character.player == null or not character.player.has_animation(full):
+		return "%s: 没有这个动作 / no such clip" % character.name
+	var anim := character.player.get_animation(full)
 	if anim == null:
 		return "%s: 没有这个动作 / no such clip" % character.name
 	var bound := 0

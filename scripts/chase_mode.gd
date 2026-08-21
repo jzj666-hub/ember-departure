@@ -87,7 +87,7 @@ var _player_beacon: MeshInstance3D
 var _hud_canvas: CanvasLayer
 var _crosshair: Control
 var _banner_panel: PanelContainer
-var _banner_style: StyleBoxTexture
+var _banner_style: StyleBoxFlat
 var _banner_title: Label
 var _banner_sub: Label
 var _info_box: PanelContainer
@@ -383,7 +383,7 @@ func _trigger_game_win() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 	if _banner_style != null:
-		_banner_style.modulate_color = Color(0.5, 1.0, 0.6, 0.98)
+		_banner_style.border_color = Color(0.3, 1.0, 0.5, 0.8)
 	_banner_title.text = "🏆 【逃生成功！存活满 2 分钟！】"
 	_banner_title.modulate = Color(0.4, 1.0, 0.6)
 	_banner_sub.text = "恭喜逃生成功！追缉者未能在 2 分钟内捕获你"
@@ -404,7 +404,7 @@ func _trigger_game_over() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 	if _banner_style != null:
-		_banner_style.modulate_color = Color(1.0, 0.45, 0.45, 0.98)
+		_banner_style.border_color = Color(1.0, 0.35, 0.35, 0.8)
 	_banner_title.text = "💀 【你已被追缉者捕获！】"
 	_banner_title.modulate = Color(1.0, 0.45, 0.45)
 	_banner_sub.text = "追缉者已接近至 1.5m 范围内！按 ESC 或点击下方按钮重新挑战"
@@ -434,7 +434,7 @@ func _build_environment() -> void:
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.8
+	env.ambient_light_energy = 0.5
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 
@@ -444,7 +444,7 @@ func _build_environment() -> void:
 
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-45.0, 35.0, 0.0)
-	sun.light_energy = 1.3
+	sun.light_energy = 1.1
 	sun.shadow_enabled = true
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true
@@ -940,10 +940,18 @@ func _build_hud() -> void:
 	_banner_panel.offset_right = 300
 	_banner_panel.offset_top = 16
 	_banner_panel.offset_bottom = 96
-	_banner_panel.custom_minimum_size = Vector2(600, 80)
+	_banner_panel.custom_minimum_size = Vector2(600, 72)
 	_banner_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	_banner_style = _create_9patch_style("res://assets/UI_assets/panel_alarm.png", 60.0, 55.0, 60.0, 50.0, 20.0, 14.0, 20.0, 14.0)
+	_banner_style = StyleBoxFlat.new()
+	_banner_style.bg_color = Color(0.06, 0.08, 0.12, 0.88)
+	_banner_style.set_corner_radius_all(12)
+	_banner_style.set_border_width_all(1)
+	_banner_style.border_color = Color(1.0, 0.85, 0.25, 0.6)
+	_banner_style.content_margin_left = 16
+	_banner_style.content_margin_right = 16
+	_banner_style.content_margin_top = 8
+	_banner_style.content_margin_bottom = 8
 	_banner_panel.add_theme_stylebox_override("panel", _banner_style)
 	_hud_canvas.add_child(_banner_panel)
 
@@ -1039,7 +1047,7 @@ func _create_9patch_style(texture_path: String, ml: float, mt: float, mr: float,
 
 func _update_escape_countdown_hud() -> void:
 	if _banner_style != null:
-		_banner_style.modulate_color = Color(1.0, 0.92, 0.65, 0.98)
+		_banner_style.border_color = Color(1.0, 0.85, 0.25, 0.75)
 	_banner_title.text = "⏳ 逃生准备倒计时: %.1f 秒" % _escape_timer
 	_banner_title.modulate = Color(1.0, 0.9, 0.3)
 	_banner_sub.text = "尽快利用地形与跳跃拉开距离！存活满 2 分钟即可逃生胜利！"
@@ -1049,7 +1057,7 @@ func _update_escape_countdown_hud() -> void:
 
 func _update_active_chase_hud() -> void:
 	if _banner_style != null:
-		_banner_style.modulate_color = Color(1.0, 0.70, 0.70, 0.98)
+		_banner_style.border_color = Color(1.0, 0.35, 0.35, 0.75)
 	_banner_title.text = "🚨 追缉进行中！全力逃生！"
 	_banner_title.modulate = Color(1.0, 0.4, 0.4)
 
@@ -1073,7 +1081,7 @@ func _update_active_chase_hud() -> void:
 	var p_cell := _nav.standing_node(_player.global_position)
 	var n_cell := _nav.standing_node(_npc.global_position)
 	var same_plat := _nav.is_same_flat_platform(n_cell, p_cell)
-	_status_detail_label.text = "追缉者寻路: A* 动力学规划 (%s)" % ("同平台高频 60ms" if same_plat else "跨障碍 250ms")
+	_status_detail_label.text = "追缉者寻路: A* 智能路径规划 (%s)" % ("同平台高频 60ms" if same_plat else "跨障碍 250ms")
 
 
 func _build_map_select_dialog() -> void:
