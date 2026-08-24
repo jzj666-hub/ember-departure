@@ -1,0 +1,12 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://bb4g8am2cps51"]
+
+[ext_resource type="Texture2D" uid="uid://cs0ssj5rky34t" path="res://assets/characters/npc_5/npc.fbm/Mat_21____001_Pbr_Diffuse.png" id="1_asqob"]
+
+[resource]
+resource_name = "Mat_21____001_Pbr"
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+albedo_texture = ExtResource("1_asqob")
+emission_enabled = true
+emission_energy_multiplier = 0.0

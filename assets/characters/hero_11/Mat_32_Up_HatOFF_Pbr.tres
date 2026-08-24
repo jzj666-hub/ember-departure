@@ -1,4 +1,4 @@
-﻿[gd_resource type="StandardMaterial3D" format=3]
+[gd_resource type="StandardMaterial3D" format=3]
 
 [ext_resource type="Texture2D" path="res://assets/characters/hero_11/hero_11.fbm/Mat_32_Up_HatOFF_Pbr_Diffuse.png" id="1_ex1ml"]
 

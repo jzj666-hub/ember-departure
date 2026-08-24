@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://lpns3sn6rhao"]
+
+[ext_resource type="Texture2D" uid="uid://b3tlrr760wipr" path="res://assets/characters/npc_3/npc_5.png" id="1_not5h"]
+
+[resource]
+resource_name = "MI_NPC_Fhilia_Face_NEW_Pbr"
+vertex_color_use_as_albedo = true
+albedo_texture = ExtResource("1_not5h")
+emission_enabled = true
+emission_energy_multiplier = 0.0

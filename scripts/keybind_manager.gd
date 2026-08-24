@@ -10,6 +10,7 @@ const SAVE_PATH := "user://keybindings.json"
 const ACTION_GROUPS := {
 	"locomotion": ["move_forward", "move_backward", "move_left", "move_right", "run", "crouch", "jump", "roll"],
 	"combat": ["attack", "heavy", "special", "block"],
+	"skills": ["skill_1"],
 }
 
 const ACTION_NAMES := {
@@ -25,6 +26,7 @@ const ACTION_NAMES := {
 	"heavy": "重击 / 连招派生",
 	"special": "特殊技能",
 	"block": "格挡防御",
+	"skill_1": "释放抽取技能",
 }
 
 const DEFAULT_BINDINGS := {
@@ -40,6 +42,7 @@ const DEFAULT_BINDINGS := {
 	"heavy": {"device": "mouse", "code": MOUSE_BUTTON_RIGHT, "trigger": "single"},
 	"special": {"device": "key", "code": KEY_E, "trigger": "single"},
 	"block": {"device": "key", "code": KEY_X, "trigger": "single"},
+	"skill_1": {"device": "key", "code": KEY_1, "trigger": "single"},
 }
 
 var _bindings: Dictionary = {}

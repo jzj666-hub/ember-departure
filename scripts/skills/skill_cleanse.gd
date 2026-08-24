@@ -6,6 +6,9 @@ extends "res://scripts/skills/skill_base.gd"
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const SkillRegistryScript = preload("res://scripts/skills/skill_registry.gd")
+const SigilRingShader = preload("res://shaders/sigil_ring.gdshader")
+const SonicRingShader = preload("res://shaders/sonic_boom_ring.gdshader")
+const HolyVeilShader = preload("res://shaders/holy_veil.gdshader")
 
 var immune_duration: float = 3.5
 var cleanse_radius: float = 6.0
@@ -194,77 +197,90 @@ static func _spawn_holy_cleanse_vfx(caster: CharacterBody3D, dur: float, parent:
 	parent.add_child(root_vfx)
 	root_vfx.global_position = caster.global_position
 
-	# 1. Expanding Radiant Halo
-	var halo := MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.5
-	torus.outer_radius = 0.9
-	torus.rings = 24
-	torus.ring_segments = 12
-	halo.mesh = torus
-	halo.position.y = 0.8
+	# 1. 地面圣洁法阵 (Ground Sacred Magic Circle Sigil)
+	var sigil_quad := QuadMesh.new()
+	sigil_quad.size = Vector2(3.6, 3.6)
+	var sigil_inst := MeshInstance3D.new()
+	sigil_inst.name = "CleanseGroundSigil"
+	sigil_inst.mesh = sigil_quad
+	sigil_inst.rotation.x = -PI * 0.5
+	sigil_inst.position.y = 0.03
 
-	var halo_mat := StandardMaterial3D.new()
-	halo_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	halo_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	halo_mat.albedo_color = Color(1.0, 0.95, 0.65, 0.95)
-	halo_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var sigil_mat := ShaderMaterial.new()
+	sigil_mat.shader = SigilRingShader
+	sigil_mat.set_shader_parameter("sigil_color", Color(1.0, 0.92, 0.55, 0.95))
+	sigil_mat.set_shader_parameter("spin_speed", 1.8)
+	sigil_mat.set_shader_parameter("fade", 1.0)
+	VfxTextures.bind(sigil_mat, "sigil_tex", VfxTextures.MAGIC_CIRCLE, "tex_mix", 1.0)
+	sigil_inst.material_override = sigil_mat
+	root_vfx.add_child(sigil_inst)
+
+	# 2. 净化爆发神圣光环 (Instant Radiant Burst Shockwave Halo)
+	var halo_quad := QuadMesh.new()
+	halo_quad.size = Vector2(2.5, 2.5)
+	var halo := MeshInstance3D.new()
+	halo.name = "CleanseBurstHalo"
+	halo.mesh = halo_quad
+	halo.rotation.x = -PI * 0.5
+	halo.position.y = 0.85
+
+	var halo_mat := ShaderMaterial.new()
+	halo_mat.shader = SonicRingShader
+	halo_mat.set_shader_parameter("ring_color", Color(1.0, 0.96, 0.7, 0.95))
+	halo_mat.set_shader_parameter("fade", 1.0)
+	halo_mat.set_shader_parameter("thickness", 0.16)
+	VfxTextures.bind(halo_mat, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 1.0)
 	halo.material_override = halo_mat
 	root_vfx.add_child(halo)
 
-	# 2. Protective Holy Light Sphere Shell
+	# 3. 圣洁微光护体气幕 (Subtle Holy Translucent Veil - 高通透清爽视界)
 	var sphere := MeshInstance3D.new()
 	var sm := SphereMesh.new()
-	sm.radius = 0.85
-	sm.height = 1.7
+	sm.radius = 0.95
+	sm.height = 1.9
+	sm.radial_segments = 32
+	sm.rings = 16
 	sphere.mesh = sm
-	sphere.position.y = 0.85
+	sphere.position.y = 0.95
 
-	var sphere_mat := StandardMaterial3D.new()
-	sphere_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	sphere_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	sphere_mat.albedo_color = Color(1.0, 0.88, 0.35, 0.35)
-	sphere_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var sphere_mat := ShaderMaterial.new()
+	sphere_mat.shader = HolyVeilShader
+	sphere_mat.set_shader_parameter("veil_color", Color(0.9, 0.95, 1.0, 0.05))
+	sphere_mat.set_shader_parameter("rim_color", Color(1.0, 0.94, 0.75, 0.40))
+	sphere_mat.set_shader_parameter("rim_power", 4.0)
+	sphere_mat.set_shader_parameter("pulse_speed", 1.8)
+	sphere_mat.set_shader_parameter("fade", 1.0)
 	sphere.material_override = sphere_mat
 	root_vfx.add_child(sphere)
 
-	# 3. Holy Sparkles / Runes
-	var parts := CPUParticles3D.new()
-	parts.amount = 36
-	parts.lifetime = 0.7
-	parts.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
-	parts.emission_sphere_radius = 0.8
-	parts.direction = Vector3.UP
-	parts.spread = 45.0
-	parts.gravity = Vector3(0.0, 3.5, 0.0)
-	parts.initial_velocity_min = 1.5
-	parts.initial_velocity_max = 3.5
-	var p_mesh := BoxMesh.new()
-	p_mesh.size = Vector3(0.06, 0.06, 0.06)
-	parts.mesh = p_mesh
-	var p_mat := StandardMaterial3D.new()
-	p_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	p_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	p_mat.albedo_color = Color(1.0, 0.96, 0.7, 0.9)
-	parts.material_override = p_mat
-	parts.position.y = 0.85
-	root_vfx.add_child(parts)
-	parts.emitting = true
+	# 初始爆发动效
+	sigil_inst.scale = Vector3(0.1, 0.1, 0.1)
+	halo.scale = Vector3(0.2, 0.2, 0.2)
+	sphere.scale = Vector3(0.2, 0.2, 0.2)
 
-	# Animations
 	var burst_tw := root_vfx.create_tween().set_parallel(true)
-	burst_tw.tween_property(halo, "scale", Vector3(3.2, 1.0, 3.2), 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	burst_tw.tween_property(halo_mat, "albedo_color:a", 0.0, 0.40).set_ease(Tween.EASE_IN)
+	burst_tw.tween_property(sigil_inst, "scale", Vector3.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	burst_tw.tween_property(sphere, "scale", Vector3.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	burst_tw.tween_property(halo, "scale", Vector3(3.6, 3.6, 3.6), 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	burst_tw.tween_method(func(v: float):
+		if is_instance_valid(halo_mat):
+			halo_mat.set_shader_parameter("fade", v)
+	, 1.0, 0.0, 0.35).set_ease(Tween.EASE_IN)
 
-	# Shield follow and pulsing
+	# 持续跟随与消散动效
 	var loop_tw := root_vfx.create_tween().set_parallel(true)
 	loop_tw.tween_method(func(_t: float):
 		if is_instance_valid(caster) and is_instance_valid(root_vfx):
 			root_vfx.global_position = caster.global_position
-			sphere.rotate_y(0.05)
+			sphere.rotate_y(0.02)
 	, 0.0, 1.0, dur)
 
-	loop_tw.chain().tween_property(sphere_mat, "albedo_color:a", 0.0, 0.25)
+	loop_tw.chain().tween_method(func(v: float):
+		if is_instance_valid(sphere_mat):
+			sphere_mat.set_shader_parameter("fade", v)
+		if is_instance_valid(sigil_mat):
+			sigil_mat.set_shader_parameter("fade", v)
+	, 1.0, 0.0, 0.25)
 	loop_tw.chain().tween_callback(root_vfx.queue_free)
 
 	return root_vfx
@@ -274,3 +290,18 @@ func preload_assets() -> void:
 	AudioManagerScript.preload_sounds([
 		"res://assets/voice/RPGsounds_Kenney/OGG/cloth1.ogg"
 	])
+
+
+func get_warmup_materials() -> Array:
+	var m_sigil := ShaderMaterial.new()
+	m_sigil.shader = SigilRingShader
+	VfxTextures.bind(m_sigil, "sigil_tex", VfxTextures.MAGIC_CIRCLE, "tex_mix", 1.0)
+
+	var m_halo := ShaderMaterial.new()
+	m_halo.shader = SonicRingShader
+	VfxTextures.bind(m_halo, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 1.0)
+
+	var m_veil := ShaderMaterial.new()
+	m_veil.shader = HolyVeilShader
+
+	return [m_sigil, m_halo, m_veil]

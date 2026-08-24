@@ -122,7 +122,7 @@ func _apply_state(pos: Vector3, yaw: float, vel: Vector3, action: String, state_
 	_target_body.rotation.y = lerp_angle(_target_body.rotation.y, yaw, 1.0 - exp(-delta * 22.0))
 	_target_body.velocity = vel
 
-	if not action.is_empty() and _target_body.has_method("force_network_anim"):
+	if _target_body.has_method("force_network_anim"):
 		_target_body.force_network_anim(action, state_val)
 
 	# Drive procedural locomotion blend animation

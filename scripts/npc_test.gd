@@ -12,6 +12,9 @@ const PlayerControllerScript = preload("res://scripts/player_controller.gd")
 const PlayerIntentSourceScript = preload("res://scripts/player_intent_source.gd")
 const NPCIntentSourceScript = preload("res://scripts/npc_intent_source.gd")
 const FollowCameraScript = preload("res://scripts/follow_camera.gd")
+const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
+const ENV_PRESET = preload("res://config/env/editor_blue.tres")
+const GROUND_PRESET = preload("res://config/ground/editor_slate.tres")
 
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 const GROUND_HALF := 20.0
@@ -122,84 +125,13 @@ func _ready() -> void:
 # --- environment & ground ---------------------------------------------------
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.24, 0.32, 0.47)
-	sky_mat.sky_horizon_color = Color(0.58, 0.60, 0.63)
-	sky_mat.ground_bottom_color = Color(0.12, 0.12, 0.14)
-	sky_mat.ground_horizon_color = Color(0.58, 0.60, 0.63)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.45
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.glow_enabled = true
-
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	add_child(world_env)
-
-	var light := DirectionalLight3D.new()
-	light.light_energy = 1.2
-	light.shadow_enabled = true
-	light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(-35.0), 0.0))
-	add_child(light)
+	WorldBuilderScript.build_environment(self, ENV_PRESET)
 
 
 func _build_ground() -> void:
-	var body := StaticBody3D.new()
-	body.name = "Ground"
-
-	var mesh := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(GROUND_HALF * 2.0, GROUND_HALF * 2.0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.18, 0.20, 0.23)
-	mat.roughness = 0.9
-	plane.material = mat
-	mesh.mesh = plane
-	body.add_child(mesh)
-
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(GROUND_HALF * 2.0, 0.4, GROUND_HALF * 2.0)
-	shape.shape = box
-	shape.position = Vector3(0.0, -0.2, 0.0)
-	body.add_child(shape)
-	add_child(body)
-
-	add_child(_make_grid())
+	WorldBuilderScript.build_ground(self, GROUND_PRESET, GROUND_HALF)
 
 
-func _make_grid() -> MeshInstance3D:
-	var mesh := ImmediateMesh.new()
-	var half := int(GROUND_HALF)
-	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	for i in range(-half, half + 1):
-		var major := i % 5 == 0
-		var colour := Color(0.45, 0.50, 0.60, 0.6) if major else Color(0.28, 0.30, 0.35, 0.3)
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(i, 0.0, -half))
-		mesh.surface_add_vertex(Vector3(i, 0.0, half))
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(-half, 0.0, i))
-		mesh.surface_add_vertex(Vector3(half, 0.0, i))
-	mesh.surface_end()
-
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.vertex_color_use_as_albedo = true
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-
-	var node := MeshInstance3D.new()
-	node.mesh = mesh
-	node.material_override = mat
-	node.position.y = 0.003
-	return node
 
 
 # --- visuals: path, beacon, crosshair markers -------------------------------

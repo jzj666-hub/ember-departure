@@ -251,6 +251,8 @@ static func _spawn_vine_entangle_vfx(caster: CharacterBody3D, target: CharacterB
 	sigil_mat.set_shader_parameter("sigil_color", Color(0.15, 0.95, 0.35, 0.9))
 	sigil_mat.set_shader_parameter("spin_speed", 1.2)
 	sigil_mat.set_shader_parameter("fade", 1.0)
+	VfxTextures.bind(sigil_mat, "sigil_tex", VfxTextures.MAGIC_CIRCLE, "tex_mix", 1.0)
+	VfxTextures.bind_ramp(sigil_mat, VfxTextures.RAMP_TOXIC, 0.8)
 	sigil_inst.material_override = sigil_mat
 	parent.add_child(sigil_inst)
 	sigil_inst.global_position = t_pos + Vector3.UP * 0.02

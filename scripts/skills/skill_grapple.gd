@@ -313,10 +313,13 @@ static func _play_hook_sequence(
 	chain_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	chain_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	chain_mat.albedo_color = Color(0.55, 0.42, 0.28, 0.95)
+	# Energy-tether look until a real chain-link sheet exists. Null texture keeps the flat cord.
+	chain_mat.albedo_texture = VfxTextures.get_tex(VfxTextures.LIGHTNING)
+	chain_mat.uv1_scale = Vector3(1.0, 4.0, 1.0)
 	chain.material_override = chain_mat
 	root.add_child(chain)
 
-	# Hook tip (claw-like: sphere + two prongs)
+	# Hook tip (claw-like: sphere + two prongs) - 暗铁玄钢质感，与黑铁索链统一
 	var tip := Node3D.new()
 	tip.name = "GrappleTip"
 	root.add_child(tip)
@@ -329,10 +332,10 @@ static func _play_hook_sequence(
 	tip_core.mesh = core_mesh
 	var tip_mat := StandardMaterial3D.new()
 	tip_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	tip_mat.albedo_color = Color(1.0, 0.72, 0.22, 1.0)
+	tip_mat.albedo_color = Color(0.28, 0.30, 0.34, 1.0)
 	tip_mat.emission_enabled = true
-	tip_mat.emission = Color(1.0, 0.5, 0.08)
-	tip_mat.emission_energy_multiplier = 2.4
+	tip_mat.emission = Color(0.45, 0.48, 0.55)
+	tip_mat.emission_energy_multiplier = 0.8
 	tip_core.material_override = tip_mat
 	tip.add_child(tip_core)
 
@@ -343,7 +346,12 @@ static func _play_hook_sequence(
 		prong.mesh = p_mesh
 		prong.position = Vector3(side * 0.07, 0.0, 0.12)
 		prong.rotation.y = side * 0.45
-		var p_mat := tip_mat.duplicate()
+		var p_mat := StandardMaterial3D.new()
+		p_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		p_mat.albedo_color = Color(0.42, 0.45, 0.52, 1.0)
+		p_mat.emission_enabled = true
+		p_mat.emission = Color(0.6, 0.65, 0.75)
+		p_mat.emission_energy_multiplier = 1.0
 		prong.material_override = p_mat
 		tip.add_child(prong)
 
@@ -464,6 +472,10 @@ static func _update_chain(chain: MeshInstance3D, mesh: CylinderMesh, a: Vector3,
 		return
 	chain.visible = true
 	mesh.height = d
+	# The cylinder stretches, so the sheet must retile with it or the links smear.
+	var cm := chain.material_override as StandardMaterial3D
+	if cm != null and cm.albedo_texture != null:
+		cm.uv1_scale = Vector3(1.0, maxf(1.0, d * 2.0), 1.0)
 	var link_dir := (b - a).normalized()
 	_align_cylinder(chain, link_dir)
 	chain.global_position = (a + b) * 0.5
@@ -488,10 +500,11 @@ static func _spawn_latch_flash(pos: Vector3, parent: Node) -> void:
 	var mat := StandardMaterial3D.new()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(1.0, 0.85, 0.35, 0.9)
+	mat.albedo_color = Color(0.85, 0.92, 1.0, 0.9)
+	mat.albedo_texture = VfxTextures.get_tex(VfxTextures.FLASH_GLOW)
 	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.7, 0.2)
-	mat.emission_energy_multiplier = 3.0
+	mat.emission = Color(0.7, 0.85, 1.0)
+	mat.emission_energy_multiplier = 2.0
 	flash.material_override = mat
 	parent.add_child(flash)
 	flash.global_position = pos

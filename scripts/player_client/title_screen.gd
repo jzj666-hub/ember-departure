@@ -186,6 +186,15 @@ func _build_ui() -> void:
 	)
 	right_col.add_child(btn_weapon)
 
+	var btn_pvp := _create_menu_button("刀剑人机对决", "1v1 SWORD PVP DUEL", "res://assets/UI_assets/winged-sword.svg", Color(0.95, 0.28, 0.45))
+	btn_pvp.pressed.connect(func() -> void:
+		_trigger_scene_transition(btn_pvp, func():
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			SceneLoader.change_scene(get_tree(), "res://scenes/player_client/sword_pvp_game.tscn", "正在进入刀剑决斗战场...")
+		)
+	)
+	right_col.add_child(btn_pvp)
+
 	var btn_editor := _create_menu_button("地图工坊", "3D MAP STUDIO", "res://assets/UI_assets/cubes.svg", Color(0.25, 0.75, 1.0))
 	btn_editor.pressed.connect(func():
 		_punch_button_and_act(btn_editor, func(): _workshop_ask_dialog.visible = true)

@@ -1,0 +1,15 @@
+[gd_resource type="Resource" script_class="EnvPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/env_preset.gd" id="1_env"]
+
+[resource]
+script = ExtResource("1_env")
+ssao = true
+glow = true
+glow_additive = true
+glow_intensity = 0.9
+glow_bloom = 0.15
+sun_yaw_deg = -30.0
+fill_enabled = true
+fill_pitch_deg = -15.0
+fill_yaw_deg = 150.0

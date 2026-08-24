@@ -16,10 +16,18 @@ enum Role {
 	CHASER = 1,
 }
 
+## Match type. Decides which battle scene hero_select launches. Host-authoritative.
+enum GameMode {
+	CHASE = 0,
+	SWORD_PVP = 1,
+}
+
 const DEFAULT_PORT := 7777
 const BROADCAST_PORT := 7778
 const BROADCAST_INTERVAL := 1.0
 const DISCOVERY_TIMEOUT := 3.0
+## ENet gives no failure signal for an unreachable host; this bounds the wait.
+const CONNECT_TIMEOUT := 8.0
 
 const MapDataScript = preload("res://scripts/map_data.gd")
 
@@ -27,11 +35,17 @@ var peer: ENetMultiplayerPeer = null
 var is_host := false
 var local_role: Role = Role.RUNNER
 var remote_role: Role = Role.CHASER
+var game_mode: GameMode = GameMode.CHASE
 var selected_map_path := ""
 var selected_map_data: Dictionary = {}
 var is_ready_local := false
 var is_ready_remote := false
 var connected_peer_id := -1
+## True between join_game() and the handshake resolving. Invariant: never true while connected_peer_id > 0.
+var is_connecting := false
+## True once the peer's profile RPC has actually landed. False here + connected == version/RPC mismatch.
+var remote_profile_synced := false
+var _connect_elapsed := 0.0
 
 var local_player_name := "灰烬行者"
 var local_avatar_type := "builtin"
@@ -64,6 +78,15 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	if is_connecting:
+		_connect_elapsed += delta
+		if _connect_elapsed >= CONNECT_TIMEOUT:
+			_connect_elapsed = 0.0
+			is_connecting = false
+			connection_failed.emit()
+			close_network()
+			return
+
 	if is_host and _udp_server != null:
 		_broadcast_timer += delta
 		if _broadcast_timer >= BROADCAST_INTERVAL:
@@ -74,7 +97,7 @@ func _process(delta: float) -> void:
 		_poll_discovery_listener()
 
 
-func create_host(port: int = DEFAULT_PORT, role: Role = Role.RUNNER, map_path: String = "") -> Error:
+func create_host(port: int = DEFAULT_PORT, role: Role = Role.RUNNER, map_path: String = "", mode: GameMode = GameMode.CHASE) -> Error:
 	close_network()
 	if ProfileManager != null:
 		local_player_name = ProfileManager.player_name
@@ -89,6 +112,7 @@ func create_host(port: int = DEFAULT_PORT, role: Role = Role.RUNNER, map_path: S
 	multiplayer.multiplayer_peer = peer
 	is_host = true
 	local_role = role
+	game_mode = mode
 	remote_role = Role.CHASER if role == Role.RUNNER else Role.RUNNER
 	selected_map_path = map_path
 	if not map_path.is_empty() and FileAccess.file_exists(map_path):
@@ -121,8 +145,13 @@ func join_game(ip: String, port: int = DEFAULT_PORT) -> Error:
 	is_host = false
 	is_ready_local = false
 	is_ready_remote = false
-	connected_peer_id = 1
-	remote_player_name = "房主"
+	# Handshake pending: connected_peer_id stays -1 until connected_to_server fires,
+	# so the lobby cannot show a room that does not exist yet.
+	connected_peer_id = -1
+	is_connecting = true
+	remote_profile_synced = false
+	_connect_elapsed = 0.0
+	remote_player_name = "正在连接房主..."
 	return OK
 
 
@@ -136,6 +165,9 @@ func close_network() -> void:
 	is_ready_local = false
 	is_ready_remote = false
 	connected_peer_id = -1
+	is_connecting = false
+	remote_profile_synced = false
+	_connect_elapsed = 0.0
 	selected_map_data = {}
 	remote_player_name = "等待对手入场..."
 
@@ -157,6 +189,16 @@ func set_host_role(role: Role) -> void:
 	lobby_status_updated.emit()
 
 
+## set_host_mode(): host-only match type change. Post: remote game_mode mirrors host.
+func set_host_mode(mode: GameMode) -> void:
+	if not is_host:
+		return
+	game_mode = mode
+	if multiplayer.has_multiplayer_peer() and connected_peer_id > 0:
+		rpc("rpc_sync_host_mode", int(mode))
+	lobby_status_updated.emit()
+
+
 func set_host_map(map_path: String) -> void:
 	if not is_host:
 		return
@@ -175,7 +217,7 @@ func start_multiplayer_match() -> void:
 		return
 	if not selected_map_path.is_empty() and FileAccess.file_exists(selected_map_path):
 		selected_map_data = MapDataScript.load_map_from_file(selected_map_path)
-	rpc("rpc_start_hero_select", selected_map_path, selected_map_data, int(local_role))
+	rpc("rpc_start_hero_select", selected_map_path, selected_map_data, int(local_role), int(game_mode))
 
 
 # --- RPCs -------------------------------------------------------------------
@@ -185,6 +227,7 @@ func rpc_sync_profile(p_name: String, av_type: String, av_key: String) -> void:
 	remote_player_name = p_name
 	remote_avatar_type = av_type
 	remote_avatar_key = av_key
+	remote_profile_synced = true
 	lobby_status_updated.emit()
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -209,6 +252,14 @@ func rpc_sync_host_map(map_path: String) -> void:
 	lobby_status_updated.emit()
 
 
+@rpc("authority", "call_remote", "reliable")
+func rpc_sync_host_mode(mode_val: int) -> void:
+	if is_host:
+		return
+	game_mode = mode_val as GameMode
+	lobby_status_updated.emit()
+
+
 @rpc("authority", "call_local", "reliable")
 func rpc_start_match(map_path: String, map_data_dict: Dictionary, host_role_val: int) -> void:
 	selected_map_path = map_path
@@ -230,6 +281,7 @@ func _on_peer_connected(id: int) -> void:
 		rpc_id(id, "rpc_sync_profile", local_player_name, local_avatar_type, local_avatar_key)
 		rpc_id(id, "rpc_sync_host_role", int(local_role))
 		rpc_id(id, "rpc_sync_host_map", selected_map_path)
+		rpc_id(id, "rpc_sync_host_mode", int(game_mode))
 		rpc_id(id, "rpc_sync_ready", is_ready_local)
 	lobby_status_updated.emit()
 
@@ -238,6 +290,7 @@ func _on_peer_disconnected(id: int) -> void:
 	if connected_peer_id == id:
 		connected_peer_id = -1
 		is_ready_remote = false
+		remote_profile_synced = false
 		remote_player_name = "等待对手入场..."
 	player_disconnected.emit(id)
 	lobby_status_updated.emit()
@@ -245,6 +298,9 @@ func _on_peer_disconnected(id: int) -> void:
 
 func _on_connected_to_server() -> void:
 	connected_peer_id = 1
+	is_connecting = false
+	_connect_elapsed = 0.0
+	remote_player_name = "房主 (信息同步中...)"
 	rpc("rpc_sync_profile", local_player_name, local_avatar_type, local_avatar_key)
 	connected_to_server.emit()
 	lobby_status_updated.emit()
@@ -252,6 +308,8 @@ func _on_connected_to_server() -> void:
 
 func _on_connection_failed() -> void:
 	connected_peer_id = -1
+	is_connecting = false
+	_connect_elapsed = 0.0
 	connection_failed.emit()
 	close_network()
 
@@ -285,6 +343,7 @@ func _send_broadcast_beacon() -> void:
 		"tag": "EMBER_CHASE",
 		"port": DEFAULT_PORT,
 		"role": int(local_role),
+		"mode": int(game_mode),
 		"map": selected_map_path.get_file().get_basename(),
 		"time": Time.get_unix_time_from_system()
 	}
@@ -327,10 +386,11 @@ func _stop_udp_discovery() -> void:
 
 
 @rpc("any_peer", "call_local", "reliable")
-func rpc_start_hero_select(map_p: String = "", map_d: Dictionary = {}, host_r: int = 0) -> void:
+func rpc_start_hero_select(map_p: String = "", map_d: Dictionary = {}, host_r: int = 0, mode_v: int = 0) -> void:
 	if not is_host:
 		selected_map_path = map_p
 		selected_map_data = map_d
+		game_mode = mode_v as GameMode
 		var h_role := host_r as Role
 		remote_role = h_role
 		local_role = Role.CHASER if h_role == Role.RUNNER else Role.RUNNER

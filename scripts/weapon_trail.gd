@@ -163,6 +163,25 @@ func seal() -> void:
 		and float(_cfg.particles) > 0.0 else 0.0
 
 
+## Immediately clears all samples, sparks, light, and ghosts without waiting.
+func extinguish() -> void:
+	close()
+	_samples.clear()
+	if _mesh != null:
+		_mesh.clear_surfaces()
+	if _light != null:
+		_light.light_energy = 0.0
+		_light.visible = false
+	_glow = 0.0
+	for g in _ghosts:
+		if is_instance_valid(g.get("node")):
+			g.node.queue_free()
+	_ghosts.clear()
+	_sealed = true
+	_drain = 0.0
+	queue_free()
+
+
 func _process(delta: float) -> void:
 	_clock += delta
 	_track(delta)

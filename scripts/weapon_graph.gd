@@ -14,6 +14,8 @@ var entries := {}
 var current := ""
 ## Seconds since `current` started.
 var elapsed := 0.0
+## Hits registered during current action node.
+var hit_count := 0
 
 ## Action node durations in seconds.
 var _spans := {}
@@ -84,6 +86,7 @@ func begin(buttons: int) -> String:
 func enter(id: String) -> void:
 	current = id
 	elapsed = 0.0
+	hit_count = 0
 	_pending = ""
 	_pending_at = 0.0
 
@@ -116,6 +119,48 @@ func advance(delta: float, buttons: int) -> String:
 	return ""
 
 
+## Returns true if current action node is within its damage window and below hit limit.
+func can_deal_damage() -> bool:
+	if current.is_empty():
+		return false
+	var action: Dictionary = actions.get(current, {})
+	if action.is_empty():
+		return false
+	var clip: String = String(action.get("clip", ""))
+	var single: bool = bool(action.get("single_hit", WeaponConfig.is_clip_single_hit(clip)))
+	if single and hit_count >= 1:
+		return false
+	var window: Array = action.get("hit_window", WeaponConfig.get_clip_hit_window(clip))
+	var start := float(window[0])
+	var end := float(window[1])
+	if end > start:
+		if elapsed < start or elapsed > end:
+			return false
+	return true
+
+
+## Returns true if current action node is within or just entering its link combo window.
+func is_in_link_window() -> bool:
+	if current.is_empty():
+		return false
+	var links: Array = actions.get(current, {}).get("links", [])
+	if links.is_empty():
+		return false
+	for link in links:
+		var w = link.get("window", [0.0, 0.0])
+		var start := float(w[0])
+		var end := float(w[1])
+		# True if inside window or buffer lead-in (0.12s before start)
+		if elapsed >= maxf(0.0, start - 0.12) and elapsed <= end:
+			return true
+	return false
+
+
+## Increments registered hits for current action node.
+func register_hit() -> void:
+	hit_count += 1
+
+
 ## Returns true if current action node duration has elapsed.
 func finished() -> bool:
 	return current.is_empty() or elapsed >= span_of(current)
@@ -125,6 +170,7 @@ func finished() -> bool:
 func reset() -> void:
 	current = ""
 	elapsed = 0.0
+	hit_count = 0
 	_pending = ""
 	_pending_at = 0.0
 

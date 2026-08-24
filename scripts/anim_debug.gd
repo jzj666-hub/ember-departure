@@ -11,18 +11,20 @@ const MENU_SCENE := "res://scenes/main_menu.tscn"
 @export_group("Camera")
 @export var start_yaw := 0.55
 @export var start_pitch := -0.18
-@export var start_distance := 3.6
+@export var start_distance := 5.0
 @export var focus_height := 1.0
 
 const ORBIT_SPEED := 0.008
 const PAN_SPEED := 0.0022
 const ZOOM_STEP := 1.12
 const MIN_DISTANCE := 0.4
-const MAX_DISTANCE := 40.0
+const MAX_DISTANCE := 80.0
 const PITCH_LIMIT := 1.45
 
-## Metres between characters when all of them are shown.
-const SPACING := 1.2
+## Spacing between characters in multi-row grid.
+const SPACING_X := 1.8
+const SPACING_Z := 2.2
+const MAX_COLS := 5
 ## Index 0 of the character picker; every other index is a character.
 const SHOW_ALL := 0
 
@@ -122,14 +124,26 @@ func _shown() -> Array[Character]:
 	return one
 
 
-## Organizes character node positions (stacked or side-by-side).
+## Organizes character node positions into a centered multi-row grid.
 func _apply_layout() -> void:
 	var shown := _shown()
 	for character in _characters:
 		character.visible = shown.has(character)
-	for i in shown.size():
-		var offset := (i - (shown.size() - 1) * 0.5) * SPACING
-		shown[i].position = Vector3(offset, 0.0, 0.0)
+	if shown.size() == 1:
+		shown[0].position = Vector3.ZERO
+		return
+	var total := shown.size()
+	var cols := clampi(ceili(sqrt(total * 1.5)), 3, MAX_COLS)
+	if total <= MAX_COLS:
+		cols = total
+	var rows := ceili(float(total) / float(cols))
+	for i in total:
+		var row := i / cols
+		var col := i % cols
+		var count_in_row := mini(cols, total - row * cols)
+		var offset_x := (col - (count_in_row - 1) * 0.5) * SPACING_X
+		var offset_z := (row - (rows - 1) * 0.5) * SPACING_Z
+		shown[i].position = Vector3(offset_x, 0.0, offset_z)
 
 
 ## Synchronously plays clip on all loaded character AnimationPlayers.
@@ -153,10 +167,10 @@ func _play(clip: String) -> void:
 	_sync_play_button()
 
 
-## The player the time readout follows; _play() keeps the others in step.
+## Lead AnimationPlayer tracking current clip playback.
 func _lead() -> AnimationPlayer:
 	for character in _shown():
-		if character.player.current_animation != "":
+		if character.player != null and character.has_clip(_current_clip):
 			return character.player
 	return null
 
@@ -164,42 +178,23 @@ func _lead() -> AnimationPlayer:
 func _refresh_info(clip: String) -> void:
 	if _info_label == null:
 		return
-	var lines := PackedStringArray([clip])
-	for character in _shown():
-		lines.append(_binding_line(character, clip))
-	_info_label.text = "\n".join(lines)
-
-
-## Count and print resolved animation track count.
-func _binding_line(character: Character, clip: String) -> String:
-	var full := character.resolve(clip)
-	if full == "" or character.player == null or not character.player.has_animation(full):
-		return "%s: 没有这个动作 / no such clip" % character.name
-	var anim := character.player.get_animation(full)
-	if anim == null:
-		return "%s: 没有这个动作 / no such clip" % character.name
-	var bound := 0
-	var unbound := PackedStringArray()
-	for i in anim.get_track_count():
-		var bone := String(anim.track_get_path(i).get_subname(0))
-		if character.skeleton.find_bone(bone) != -1:
-			bound += 1
-		elif not unbound.has(bone):
-			unbound.append(bone)
-	var line := "%s: %.3f s  |  %d/%d 轨道已绑定  |  %d 骨骼" % [
-		character.name, anim.length, bound, anim.get_track_count(),
-		character.skeleton.get_bone_count()]
-	if not unbound.is_empty():
-		line += "\n  未匹配: %s" % ", ".join(unbound)
-	return line
+	var longest := 0.0
+	for character in _characters:
+		var full := character.resolve(clip)
+		if full != "" and character.player != null and character.player.has_animation(full):
+			var anim := character.player.get_animation(full)
+			if anim != null:
+				longest = maxf(longest, anim.length)
+	_info_label.text = "动作 / Clip: %s (%.2f s)" % [clip, longest]
 
 
 func _process(_delta: float) -> void:
 	var lead := _lead()
-	if lead and lead.is_playing() and not _scrubbing and _time_slider:
-		_time_slider.set_value_no_signal(lead.current_animation_position)
+	if lead != null and not _scrubbing and _time_slider != null:
+		if lead.is_playing():
+			_time_slider.set_value_no_signal(lead.current_animation_position)
 		_time_label.text = "%5.2f / %5.2f s" % [
-			lead.current_animation_position, lead.current_animation_length]
+			lead.current_animation_position, _time_slider.max_value]
 	_draw_bones()
 
 
@@ -259,9 +254,7 @@ func _update_camera() -> void:
 # --- bone overlay ---------------------------------------------------------
 
 func _build_grid() -> void:
-	# 1 m squares: if a character ever imports at the wrong scale again, it is
-	# immediately obvious against this.
-	const HALF := 6
+	const HALF := 20
 	var mesh := ImmediateMesh.new()
 	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 	for i in range(-HALF, HALF + 1):
@@ -374,7 +367,7 @@ func _build_ui() -> void:
 	box.add_child(row)
 
 	_play_button = Button.new()
-	_play_button.text = "❚❚ Pause"
+	_play_button.text = "❚❚ 暂停 / Pause"
 	_play_button.pressed.connect(_toggle_play)
 	row.add_child(_play_button)
 
@@ -413,19 +406,26 @@ func _build_ui() -> void:
 		if not _scrubbing:
 			return
 		for character in _characters:
-			if character.player.current_animation != "":
-				character.player.seek(v, true))
+			if character.player != null and character.has_clip(_current_clip):
+				character.player.seek(v, true)
+		if _lead() != null:
+			_time_label.text = "%5.2f / %5.2f s" % [v, _time_slider.max_value])
 	_time_slider.drag_started.connect(func() -> void:
 		_scrubbing = true
 		_resume_after_scrub = _lead() != null and _lead().is_playing()
 		for character in _characters:
-			character.player.pause())
+			if character.player != null:
+				character.player.pause())
 	_time_slider.drag_ended.connect(func(_changed: bool) -> void:
 		_scrubbing = false
 		if _resume_after_scrub:
 			for character in _characters:
-				if character.player.current_animation != "":
-					character.player.play()
+				var full := character.resolve(_current_clip)
+				if full != "" and character.player != null and character.player.has_animation(full):
+					if character.player.assigned_animation != full:
+						character.player.play(full)
+					else:
+						character.player.play()
 		_sync_play_button())
 	box.add_child(_time_slider)
 
@@ -513,16 +513,19 @@ func _toggle_play() -> void:
 	var lead := _lead()
 	var pausing := lead != null and lead.is_playing()
 	for character in _characters:
-		var player := character.player
-		if player.current_animation == "":
+		var full := character.resolve(_current_clip)
+		if full == "" or character.player == null or not character.player.has_animation(full):
 			continue
+		var player := character.player
 		if pausing:
 			player.pause()
 		else:
-			# play() restarts a finished non-looping clip instead of stalling at the end.
 			if is_equal_approx(player.current_animation_position, player.current_animation_length):
 				player.seek(0.0, true)
-			player.play()
+			if player.assigned_animation != full:
+				player.play(full)
+			else:
+				player.play()
 	_sync_play_button()
 
 
@@ -530,4 +533,4 @@ func _sync_play_button() -> void:
 	if _play_button == null:
 		return
 	var lead := _lead()
-	_play_button.text = "❚❚ Pause" if lead != null and lead.is_playing() else "▶ Play"
+	_play_button.text = "❚❚ 暂停 / Pause" if lead != null and lead.is_playing() else "▶ 播放 / Play"

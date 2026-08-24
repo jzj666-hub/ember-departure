@@ -12,7 +12,15 @@ const PlayerIntentSourceScript = preload("res://scripts/player_intent_source.gd"
 const NPCIntentSourceScript = preload("res://scripts/npc_intent_source.gd")
 const FollowCameraScript = preload("res://scripts/follow_camera.gd")
 const SnapshotInterpolatorScript = preload("res://scripts/network/snapshot_interpolator.gd")
+const SkillLoadoutScript = preload("res://scripts/skills/skill_loadout.gd")
+const SkillDrawPanelScript = preload("res://scripts/player_client/skill_draw_panel.gd")
+const SkillAimScript = preload("res://scripts/skills/skill_aim.gd")
+const SkillRegistryScript = preload("res://scripts/skills/skill_registry.gd")
+const KeybindManagerScript = preload("res://scripts/keybind_manager.gd")
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
+const ENV_PRESET = preload("res://config/env/chase_dusk.tres")
+const GROUND_PRESET = preload("res://config/ground/chase_grid.tres")
 
 const LOBBY_SCENE := "res://scenes/player_client/multiplayer_lobby.tscn"
 const TITLE_SCENE := "res://scenes/player_client/title_screen.tscn"
@@ -116,6 +124,12 @@ var _local_scene_ready := false
 var _remote_scene_ready := false
 var _has_started_countdown := false
 
+var _skill_label: Label
+var _skill_loadout: SkillLoadout
+var _skill_draw_panel: SkillDrawPanel
+var _skill_aim: SkillAim
+var _skills_assigned := false
+
 
 func _ready() -> void:
 	AudioManagerScript.init_pool(self)
@@ -145,6 +159,7 @@ func _ready() -> void:
 			_nav.set_capability(_local_body)
 
 	_reset_match_positions()
+	_setup_skill_draw()
 
 	_local_scene_ready = true
 	if multiplayer.has_multiplayer_peer():
@@ -165,6 +180,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_commander_mode()
 			get_viewport().set_input_as_handled()
 			return
+		elif _is_skill_key(event):
+			if _on_skill_key_pressed():
+				get_viewport().set_input_as_handled()
+			return
+
+	if event is InputEventKey and not event.pressed and _is_skill_key(event):
+		if _on_skill_key_released():
+			get_viewport().set_input_as_handled()
+		return
 
 	if _state == State.MATCH_OVER and _stage_modal != null and _stage_modal.visible:
 		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -211,6 +235,10 @@ func _process(delta: float) -> void:
 
 	if _remote_interpolator != null:
 		_remote_interpolator.update_interpolation(delta)
+
+	if _skill_aim != null and _skill_aim.active:
+		_skill_aim.set_camera(_commander_camera if _commander_mode else _camera)
+		_skill_aim.update_aim()
 
 
 func _physics_process(delta: float) -> void:
@@ -300,6 +328,7 @@ func rpc_peer_scene_ready() -> void:
 
 func _host_trigger_countdown() -> void:
 	_has_started_countdown = true
+	_host_assign_skills()
 	rpc("rpc_start_prepare_countdown", ESCAPE_COUNTDOWN_TIME)
 
 
@@ -355,6 +384,140 @@ func _reset_match_positions() -> void:
 
 	if _camera != null:
 		_camera.snap()
+
+
+# --- Skill draw & casting ----------------------------------------------------
+
+## Builds the slot and aim cursor. The draw itself is host-assigned (rpc_assign_skills) so the two
+## players never open with the same skill; a peerless scene rolls locally for debugging.
+func _setup_skill_draw() -> void:
+	SkillRegistryScript.init_registry()
+	SkillRegistryScript.warmup_all_shaders(self)
+
+	_skill_loadout = SkillLoadoutScript.new()
+	_skill_loadout.name = "SkillLoadout"
+	add_child(_skill_loadout)
+	_skill_loadout.setup(_local_body, self, NetworkManager.local_role == NetworkManager.Role.RUNNER)
+	_skill_loadout.cooldown_changed.connect(_on_skill_cooldown_changed)
+
+	_skill_aim = SkillAimScript.new()
+	_skill_aim.name = "SkillAim"
+	add_child(_skill_aim)
+	_skill_aim.setup(_camera)
+
+	_skill_draw_panel = SkillDrawPanelScript.new()
+	_skill_draw_panel.name = "SkillDrawPanel"
+	add_child(_skill_draw_panel)
+
+	if not multiplayer.has_multiplayer_peer():
+		_play_skill_draw(_skill_loadout.roll())
+
+
+## Host draws both sides at once, guaranteeing they differ, then broadcasts the assignment.
+func _host_assign_skills() -> void:
+	if not NetworkManager.is_host or _skills_assigned:
+		return
+	_skills_assigned = true
+	var pair := SkillLoadoutScript.draw_pair()
+	rpc("rpc_assign_skills", str(pair["runner"]), str(pair["chaser"]))
+
+
+@rpc("authority", "call_local", "reliable")
+func rpc_assign_skills(runner_skill: String, chaser_skill: String) -> void:
+	if _skill_loadout == null:
+		return
+	var mine := runner_skill if NetworkManager.local_role == NetworkManager.Role.RUNNER else chaser_skill
+	_play_skill_draw(_skill_loadout.roll(mine))
+
+
+func _play_skill_draw(rolled: String) -> void:
+	if rolled.is_empty() or _skill_draw_panel == null:
+		return
+	var names: Array[String] = []
+	for s_id in _skill_loadout.candidates():
+		names.append(_skill_loadout.display_name_of(s_id))
+	_skill_draw_panel.play(names, _skill_loadout.display_name_of(rolled))
+	_refresh_skill_hud()
+
+
+func _on_skill_cooldown_changed(_left: float, _total: float) -> void:
+	_refresh_skill_hud()
+
+
+func _refresh_skill_hud() -> void:
+	if _skill_label == null or _skill_loadout == null:
+		return
+	_skill_label.text = _skill_loadout.hud_text(_skill_key_label())
+
+
+func _skill_key_label() -> String:
+	var km = KeybindManagerScript.get_instance()
+	if km == null:
+		return "1"
+	var text: String = km.binding_key_only_text("skill_1")
+	return text if not text.is_empty() and text != "未绑定" else "1"
+
+
+func _is_skill_key(event: InputEventKey) -> bool:
+	var km = KeybindManagerScript.get_instance()
+	var code := KEY_1
+	if km != null:
+		var b: Dictionary = km.get_binding("skill_1")
+		if b.get("device", "key") == "key" and int(b.get("code", 0)) != 0:
+			code = int(b.get("code"))
+	return event.keycode == code or event.physical_keycode == code
+
+
+## Key press. An aimed skill arms the ground cursor and waits for the release; the rest fire now.
+func _on_skill_key_pressed() -> bool:
+	if _state != State.CHASE_ACTIVE or _skill_loadout == null:
+		return false
+	if not _skill_loadout.can_cast():
+		return false
+	if _skill_loadout.is_aimed():
+		if _skill_aim != null and not _skill_aim.active:
+			_skill_aim.set_camera(_commander_camera if _commander_mode else _camera)
+			_skill_aim.begin(_skill_loadout.current_skill(), _local_body)
+		return true
+	return try_cast_skill()
+
+
+## Key release. Only meaningful mid-aim: locks the ground position and casts there.
+func _on_skill_key_released() -> bool:
+	if _skill_aim == null or not _skill_aim.active:
+		return false
+	var pos := _skill_aim.finish()
+	if _state != State.CHASE_ACTIVE:
+		return false
+	return try_cast_skill_at(pos)
+
+
+## Instant cast entry point shared by the key binding and any bot driver.
+func try_cast_skill() -> bool:
+	if _state != State.CHASE_ACTIVE or _skill_loadout == null:
+		return false
+	if not _skill_loadout.cast_skill():
+		return false
+	if multiplayer.has_multiplayer_peer():
+		rpc("rpc_peer_skill_cast", _skill_loadout.skill_id, _local_body.global_position)
+	return true
+
+
+## Aimed cast entry point shared by the key binding and any bot driver.
+func try_cast_skill_at(target_pos: Vector3) -> bool:
+	if _state != State.CHASE_ACTIVE or _skill_loadout == null:
+		return false
+	if not _skill_loadout.cast_skill_at(target_pos):
+		return false
+	if multiplayer.has_multiplayer_peer():
+		rpc("rpc_peer_skill_cast", _skill_loadout.skill_id, target_pos)
+	return true
+
+
+## Replays a peer's cast against its avatar here, so VFX exist and area effects hit our local body.
+@rpc("any_peer", "call_remote", "reliable")
+func rpc_peer_skill_cast(skill_id: String, target_pos: Vector3) -> void:
+	SkillLoadoutScript.cast_for_body_at(skill_id, _remote_body, self, target_pos)
 
 
 func _build_visual_helpers() -> void:
@@ -641,75 +804,11 @@ func _make_wire_cube() -> MeshInstance3D:
 
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.18, 0.22, 0.30)
-	sky_mat.sky_horizon_color = Color(0.55, 0.45, 0.40)
-	sky_mat.ground_bottom_color = Color(0.08, 0.08, 0.10)
-	sky_mat.ground_horizon_color = Color(0.40, 0.42, 0.48)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.5
-	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-
-	var env_node := WorldEnvironment.new()
-	env_node.environment = env
-	add_child(env_node)
-
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-45.0, 35.0, 0.0)
-	sun.light_energy = 1.1
-	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.directional_shadow_blend_splits = true
-	sun.directional_shadow_max_distance = 150.0
-	sun.directional_shadow_fade_start = 0.85
-	sun.shadow_bias = 0.03
-	sun.shadow_normal_bias = 1.0
-	add_child(sun)
+	WorldBuilderScript.build_environment(self, ENV_PRESET)
 
 
 func _build_ground() -> void:
-	var body := StaticBody3D.new()
-	body.name = "Ground"
-
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(GROUND_HALF * 2.0, 0.4, GROUND_HALF * 2.0)
-	shape.shape = box
-	shape.position = Vector3(0.0, -0.2, 0.0)
-	body.add_child(shape)
-	add_child(body)
-
-	var mesh := ImmediateMesh.new()
-	var half := int(GROUND_HALF)
-	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	for i in range(-half, half + 1):
-		var major := i % 5 == 0
-		var colour := Color(0.45, 0.50, 0.60, 0.6) if major else Color(0.28, 0.30, 0.35, 0.3)
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(i, 0.0, -half))
-		mesh.surface_add_vertex(Vector3(i, 0.0, half))
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(-half, 0.0, i))
-		mesh.surface_add_vertex(Vector3(half, 0.0, i))
-	mesh.surface_end()
-
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.vertex_color_use_as_albedo = true
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-
-	var node := MeshInstance3D.new()
-	node.mesh = mesh
-	node.material_override = mat
-	node.position.y = 0.003
-	add_child(node)
+	WorldBuilderScript.build_ground(self, GROUND_PRESET, GROUND_HALF)
 
 
 func _apply_map_data(data: Dictionary) -> void:
@@ -894,6 +993,14 @@ func _build_hud() -> void:
 	_status_detail_label.add_theme_font_size_override("font_size", 11)
 	_status_detail_label.modulate = Color(1.0, 1.0, 1.0, 0.5)
 	stat_vbox.add_child(_status_detail_label)
+
+	_skill_label = Label.new()
+	_skill_label.text = "[1] 未持有技能"
+	if _custom_font != null:
+		_skill_label.add_theme_font_override("font", _custom_font)
+	_skill_label.add_theme_font_size_override("font_size", 14)
+	_skill_label.modulate = Color(1.0, 0.85, 0.4)
+	stat_vbox.add_child(_skill_label)
 
 	_hint_tab_label = Label.new()
 	_hint_tab_label.text = "[Tab] 视角: 亲自操控 (按Tab切换全局指挥)"

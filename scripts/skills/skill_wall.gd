@@ -3,6 +3,7 @@ extends "res://scripts/skills/skill_base.gd"
 ## Blocks anyone from crossing; the flame screen above the trace prevents jumping over.
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const FlameWallShader = preload("res://shaders/flame_wall.gdshader")
 
 ## Horizontal span of the wall (m).
 var wall_length: float = 6.0
@@ -245,9 +246,9 @@ class WallZone extends Node3D:
 	var _dead: bool = false
 	var _body: StaticBody3D
 	var _collider: CollisionShape3D
-	var _screen_mat: StandardMaterial3D
-	var _strip_mat: StandardMaterial3D
-	var _flames: CPUParticles3D
+	var _flame_screen: MeshInstance3D
+	var _flame_mat: ShaderMaterial
+	var _ground_fissure: MeshInstance3D
 
 	func _ready() -> void:
 		_build_visuals()
@@ -256,34 +257,29 @@ class WallZone extends Node3D:
 		if _dead:
 			return
 		_elapsed += delta
-		_flicker(delta)
 		if _elapsed >= duration:
 			_dead = true
 			_dissolve()
 
-	func _flicker(_delta: float) -> void:
-		if _screen_mat != null and is_instance_valid(_screen_mat):
-			var e := 1.3 + sin(_elapsed * 14.0) * 0.3 + sin(_elapsed * 37.0) * 0.15
-			_screen_mat.emission_energy_multiplier = e
-
 	func _dissolve() -> void:
 		if _collider != null and is_instance_valid(_collider):
 			_collider.set_deferred("disabled", true)
-		if _flames != null and is_instance_valid(_flames):
-			_flames.emitting = false
 		var tw := create_tween()
 		tw.set_parallel(true)
-		if _screen_mat != null and is_instance_valid(_screen_mat):
-			tw.tween_property(_screen_mat, "albedo_color:a", 0.0, 0.35)
-		if _strip_mat != null and is_instance_valid(_strip_mat):
-			tw.tween_property(_strip_mat, "albedo_color:a", 0.0, 0.35)
+		if _flame_mat != null and is_instance_valid(_flame_mat):
+			tw.tween_method(func(v: float):
+				if is_instance_valid(_flame_mat):
+					_flame_mat.set_shader_parameter("fade", v)
+			, 1.0, 0.0, 0.35)
+		if _ground_fissure != null and is_instance_valid(_ground_fissure) and _ground_fissure.material_override != null:
+			tw.tween_property(_ground_fissure.material_override, "albedo_color:a", 0.0, 0.35)
 		tw.chain().tween_callback(queue_free)
 
 	func _build_visuals() -> void:
 		var len := maxf(length, 1.0)
 		var h := maxf(height, 1.0)
 
-		# Physical barrier (blocks walking and jumping over).
+		# 1. 物理屏障 (Invisible Collision Barrier)
 		_body = StaticBody3D.new()
 		_body.name = "FlameWallBody"
 		_collider = CollisionShape3D.new()
@@ -293,66 +289,56 @@ class WallZone extends Node3D:
 		_body.add_child(_collider)
 		add_child(_body)
 
-		# Ground flame-gas trace strip.
-		var strip := MeshInstance3D.new()
-		var sm := BoxMesh.new()
-		sm.size = Vector3(len, 0.14, 0.55)
-		strip.mesh = sm
-		_strip_mat = StandardMaterial3D.new()
-		_strip_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_strip_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_strip_mat.albedo_color = Color(1.0, 0.45, 0.1, 0.85)
-		_strip_mat.emission_enabled = true
-		_strip_mat.emission = Color(1.0, 0.4, 0.05)
-		_strip_mat.emission_energy_multiplier = 2.0
-		strip.material_override = _strip_mat
-		strip.position.y = 0.1
-		add_child(strip)
+		# 2. 动态翻腾烈焰幕墙 (Dynamic Roaring Flame Wall Screen)
+		_flame_screen = MeshInstance3D.new()
+		_flame_screen.name = "FlameScreen"
+		var qm := QuadMesh.new()
+		qm.size = Vector2(len, h)
+		_flame_screen.mesh = qm
+		_flame_screen.position.y = h * 0.5
 
-		# Flame screen rising above the trace.
-		var screen := MeshInstance3D.new()
-		var pmesh := BoxMesh.new()
-		pmesh.size = Vector3(len, h, 0.12)
-		screen.mesh = pmesh
-		_screen_mat = StandardMaterial3D.new()
-		_screen_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_screen_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_screen_mat.albedo_color = Color(1.0, 0.5, 0.08, 0.5)
-		_screen_mat.emission_enabled = true
-		_screen_mat.emission = Color(1.0, 0.4, 0.03)
-		_screen_mat.emission_energy_multiplier = 1.5
-		screen.material_override = _screen_mat
-		screen.position.y = h * 0.5
-		add_child(screen)
+		_flame_mat = ShaderMaterial.new()
+		_flame_mat.shader = FlameWallShader
+		_flame_mat.set_shader_parameter("fire_core", Color(2.0, 1.6, 0.9, 1.0))
+		_flame_mat.set_shader_parameter("fire_mid", Color(1.0, 0.52, 0.06, 0.95))
+		_flame_mat.set_shader_parameter("fire_top", Color(0.85, 0.15, 0.02, 0.8))
+		_flame_mat.set_shader_parameter("speed", 5.5)
+		_flame_mat.set_shader_parameter("flame_density", maxf(len * 2.2, 8.0))
+		_flame_mat.set_shader_parameter("fade", 1.0)
+		_flame_screen.material_override = _flame_mat
+		add_child(_flame_screen)
 
-		# Rising flame particles along the wall.
-		_flames = CPUParticles3D.new()
-		_flames.amount = 64
-		_flames.lifetime = 0.55
-		_flames.one_shot = false
-		_flames.explosiveness = 0.55
-		_flames.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-		_flames.emission_box_extents = Vector3(len * 0.5, h * 0.25, 0.12)
-		_flames.direction = Vector3.UP
-		_flames.spread = 28.0
-		_flames.gravity = Vector3(0.0, -1.5, 0.0)
-		_flames.initial_velocity_min = 1.2
-		_flames.initial_velocity_max = 3.2
-		var fm := SphereMesh.new()
-		fm.radius = 0.07
-		fm.height = 0.14
-		_flames.mesh = fm
-		var fmat := StandardMaterial3D.new()
-		fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		fmat.albedo_color = Color(1.0, 0.6, 0.15, 0.85)
-		_flames.material_override = fmat
-		_flames.position.y = h * 0.4
-		add_child(_flames)
-		_flames.emitting = true
+		# 3. 地表自然熔岩裂隙光带 (Natural Ground Magma Fissure Strip)
+		_ground_fissure = MeshInstance3D.new()
+		_ground_fissure.name = "GroundFissure"
+		var f_mesh := QuadMesh.new()
+		f_mesh.size = Vector2(len * 1.05, 0.45)
+		_ground_fissure.mesh = f_mesh
+		_ground_fissure.rotation.x = -PI * 0.5
+		_ground_fissure.position.y = 0.02
+
+		var f_mat := StandardMaterial3D.new()
+		f_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		f_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		f_mat.albedo_color = Color(1.0, 0.48, 0.08, 0.85)
+		f_mat.albedo_texture = VfxTextures.get_tex(VfxTextures.GROUND_CRACK)
+		f_mat.uv1_scale = Vector3(len * 0.5, 1.0, 1.0)
+		_ground_fissure.material_override = f_mat
+		add_child(_ground_fissure)
+
+		# 初始升腾起墙动效
+		_flame_screen.scale = Vector3(1.0, 0.05, 1.0)
+		var tw := create_tween().set_parallel(true)
+		tw.tween_property(_flame_screen, "scale", Vector3.ONE, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
 func preload_assets() -> void:
 	AudioManagerScript.preload_sounds([
 		"res://assets/voice/RPGsounds_Kenney/OGG/knifeSlice.ogg"
 	])
+
+
+func get_warmup_materials() -> Array:
+	var m_wall := ShaderMaterial.new()
+	m_wall.shader = FlameWallShader
+	return [m_wall]

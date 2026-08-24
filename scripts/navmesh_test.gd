@@ -11,6 +11,8 @@ const PlayerControllerScript = preload("res://scripts/player_controller.gd")
 const NPCIntentSourceScript = preload("res://scripts/npc_intent_source.gd")
 const NavMeshProviderScript = preload("res://scripts/nav_mesh_provider.gd")
 const FollowCameraScript = preload("res://scripts/follow_camera.gd")
+const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
+const ENV_PRESET = preload("res://config/env/plain_blue.tres")
 
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 const GROUND_HALF := 20.0
@@ -77,31 +79,7 @@ func _ready() -> void:
 # --- world ------------------------------------------------------------------
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.24, 0.32, 0.47)
-	sky_mat.sky_horizon_color = Color(0.58, 0.60, 0.63)
-	sky_mat.ground_bottom_color = Color(0.12, 0.12, 0.14)
-	sky_mat.ground_horizon_color = Color(0.58, 0.60, 0.63)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.45
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	add_child(world_env)
-
-	var light := DirectionalLight3D.new()
-	light.light_energy = 1.2
-	light.shadow_enabled = true
-	light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(-35.0), 0.0))
-	add_child(light)
+	WorldBuilderScript.build_environment(self, ENV_PRESET)
 
 
 ## Every piece here is off-grid on purpose: rotated, sloped or round. None of it

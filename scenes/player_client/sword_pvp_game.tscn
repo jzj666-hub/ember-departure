@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://sword_pvp_game_client"]
+
+[ext_resource type="Script" path="res://scripts/player_client/sword_pvp_game.gd" id="1_pvp"]
+
+[node name="SwordPvpGame" type="Node3D"]
+script = ExtResource("1_pvp")

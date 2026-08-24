@@ -1,0 +1,11 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://cx5cokgmnxc38"]
+
+[ext_resource type="Texture2D" uid="uid://bsxj6srm4or6b" path="res://assets/characters/npc_1/npc_1.fbm/_102_Body_Pbr_Diffuse.tga" id="1_nfa2c"]
+
+[resource]
+resource_name = "_102_Body_Pbr"
+transparency = 4
+vertex_color_use_as_albedo = true
+albedo_texture = ExtResource("1_nfa2c")
+emission_enabled = true
+emission_energy_multiplier = 0.0

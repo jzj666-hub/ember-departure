@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://ca0dp0df2ygem"]
+
+[ext_resource type="Script" uid="uid://ch0rg3stebnja" path="res://scripts/character.gd" id="1_lkjek"]
+[ext_resource type="AnimationLibrary" uid="uid://di7yhhs8xw5mu" path="res://assets/animations/shared_animations.tres" id="2_bxjgq"]
+[ext_resource type="PackedScene" uid="uid://6bhj650cb7eq" path="res://assets/characters/npc_2/npc.fbx" id="3_su0kl"]
+
+[node name="Npc2" type="Node3D" unique_id=947625411]
+script = ExtResource("1_lkjek")
+character_id = "npc_2"
+body_height = 1.75
+shared_animations = ExtResource("2_bxjgq")
+
+[node name="Model" type="Node3D" parent="." unique_id=124415503 instance=ExtResource("3_su0kl")]

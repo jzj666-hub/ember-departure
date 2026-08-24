@@ -1,4 +1,4 @@
-﻿[gd_resource type="StandardMaterial3D" format=3 uid="uid://cppty5qx2d0l0"]
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://cppty5qx2d0l0"]
 
 [ext_resource type="Texture2D" uid="uid://h721h5cshvme" path="res://assets/characters/hero_8/hero_8.fbm/Mat_16_Pbr_Pbr_Pbr_Diffuse.png" id="1_8f30j"]
 

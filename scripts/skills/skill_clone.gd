@@ -5,6 +5,7 @@ extends "res://scripts/skills/skill_base.gd"
 ## facing, actions, effects — stays identical.
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const SonicRingShader = preload("res://shaders/sonic_boom_ring.gdshader")
 
 ## Clone lifetime (s).
 var clone_duration: float = 8.0
@@ -233,10 +234,74 @@ func _spawn_clone(caster: CharacterBody3D, vfx_parent: Node, mirror_input: bool)
 	collider.position.y = height * 0.5
 	clone.add_child(collider)
 
+	# 分身分离爆发特效 (Phantom Split Flash & Sonic Pop)
+	_spawn_clone_split_vfx(origin, caster.global_position, clone.global_position, vfx_parent)
+
 	# Share the casters camera so heading/facing stays in lockstep with the real body.
 	var cam: Node3D = caster.get("camera")
 	clone.setup(visual, cam)
 	return clone
+
+
+static func _spawn_clone_split_vfx(center: Vector3, p_pos: Vector3, c_pos: Vector3, parent: Node) -> void:
+	if parent == null or not is_instance_valid(parent):
+		return
+
+	# 1. 中心幻影分形爆裂环 (Central Holographic Shock Ring)
+	var qm := QuadMesh.new()
+	qm.size = Vector2(2.4, 2.4)
+	var ring := MeshInstance3D.new()
+	ring.mesh = qm
+	ring.rotation.x = -PI * 0.5
+	ring.position = center + Vector3.UP * 0.1
+
+	var ring_mat := ShaderMaterial.new()
+	ring_mat.shader = SonicRingShader
+	ring_mat.set_shader_parameter("ring_color", Color(0.0, 0.95, 1.0, 0.95))
+	ring_mat.set_shader_parameter("fade", 1.0)
+	ring_mat.set_shader_parameter("thickness", 0.16)
+	VfxTextures.bind(ring_mat, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 1.0)
+	VfxTextures.bind_ramp(ring_mat, VfxTextures.RAMP_ICE, 0.8)
+	ring.material_override = ring_mat
+	parent.add_child(ring)
+
+	var tw := ring.create_tween().set_parallel(true)
+	tw.tween_property(ring, "scale", Vector3(2.5, 2.5, 2.5), 0.28).from(Vector3(0.2, 0.2, 0.2)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_method(func(v: float):
+		if is_instance_valid(ring_mat):
+			ring_mat.set_shader_parameter("fade", v)
+	, 1.0, 0.0, 0.28).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(ring.queue_free)
+
+	# 2. 两个分离落点烟霞微光 (Pop Puffs at both bodies)
+	for spot in [p_pos, c_pos]:
+		var puff := MeshInstance3D.new()
+		var pqm := QuadMesh.new()
+		pqm.size = Vector2(1.2, 1.2)
+		puff.mesh = pqm
+		puff.position = spot + Vector3.UP * 0.85
+		var pmat := StandardMaterial3D.new()
+		pmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		pmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		pmat.albedo_color = Color(0.3, 0.9, 1.0, 0.75)
+		pmat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+		pmat.albedo_texture = VfxTextures.get_tex(VfxTextures.SMOKE_PUFF)
+		puff.material_override = pmat
+		parent.add_child(puff)
+
+		var ptw := puff.create_tween().set_parallel(true)
+		ptw.tween_property(puff, "scale", Vector3(1.8, 1.8, 1.8), 0.25).from(Vector3(0.3, 0.3, 0.3)).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		ptw.tween_property(pmat, "albedo_color:a", 0.0, 0.25).set_ease(Tween.EASE_IN)
+		ptw.chain().tween_callback(puff.queue_free)
+
+
+func get_warmup_materials() -> Array:
+	var m_ring := ShaderMaterial.new()
+	m_ring.shader = SonicRingShader
+	VfxTextures.bind(m_ring, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 1.0)
+	VfxTextures.bind_ramp(m_ring, VfxTextures.RAMP_ICE, 0.8)
+	return [m_ring]
+
 
 
 func _start_clone_timer(caster_id: int, dur: float) -> void:

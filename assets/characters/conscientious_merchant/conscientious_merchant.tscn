@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://mb5kuiav8d4d"]
+
+[ext_resource type="Script" uid="uid://ch0rg3stebnja" path="res://scripts/character.gd" id="1_y25ep"]
+[ext_resource type="AnimationLibrary" uid="uid://di7yhhs8xw5mu" path="res://assets/animations/shared_animations.tres" id="2_2u85n"]
+[ext_resource type="PackedScene" uid="uid://bpa1lpqgutcud" path="res://assets/characters/conscientious_merchant/merchant.fbx" id="3_xe4th"]
+
+[node name="ConscientiousMerchant" type="Node3D" unique_id=415891017]
+script = ExtResource("1_y25ep")
+character_id = "conscientious_merchant"
+body_height = 1.75
+shared_animations = ExtResource("2_2u85n")
+
+[node name="Model" type="Node3D" parent="." unique_id=1358939196 instance=ExtResource("3_xe4th")]

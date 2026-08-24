@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="EnvPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/env_preset.gd" id="1_env"]
+
+[resource]
+script = ExtResource("1_env")
+panorama_path = "res://assets/sky_image/Pure_Twilight_Sky_Dome.jpg"
+sky_top_color = Color(0.25, 0.42, 0.65, 1)
+sky_horizon_color = Color(0.68, 0.75, 0.82, 1)
+ground_bottom_color = Color(0.16, 0.18, 0.2, 1)
+ground_horizon_color = Color(0.6, 0.65, 0.68, 1)
+ambient_energy = 0.75
+ssao = true
+glow = true
+glow_bloom = 0.15
+fog = true
+fog_color = Color(0.85, 0.65, 0.52, 1)
+fog_density = 0.0025
+sun_color = Color(1, 0.82, 0.64, 1)
+sun_energy = 1.55
+sun_pitch_deg = -38.0
+sun_yaw_deg = -38.0
+fill_enabled = true
+fill_color = Color(0.9, 0.7, 0.6, 1)
+fill_energy = 0.45
+fill_yaw_deg = 140.0

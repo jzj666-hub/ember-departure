@@ -8,6 +8,7 @@ const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 const FONT_GLITCH_PATH := "res://assets/Fonts/Long_Cang,Rubik_Glitch/Rubik_Glitch/RubikGlitch-Regular.ttf"
 const MULTIPLAYER_CHASE_SCENE := "res://scenes/player_client/chase_multiplayer.tscn"
+const MULTIPLAYER_PVP_SCENE := "res://scenes/player_client/sword_pvp_multiplayer.tscn"
 
 var _custom_font: Font = null
 var _glitch_font: Font = null
@@ -569,6 +570,10 @@ func _check_both_locked() -> void:
 			return
 		_is_transitioning = true
 
+		var is_pvp := NetworkManager.game_mode == NetworkManager.GameMode.SWORD_PVP
+		var next_scene := MULTIPLAYER_PVP_SCENE if is_pvp else MULTIPLAYER_CHASE_SCENE
+		var next_hint := "双方英雄就绪，正在切入刀剑决斗场..." if is_pvp else "双方英雄就绪，正在切入追缉战场..."
+
 		# Slow cinematic burn transition
 		if _transition_mat != null:
 			_transition_mat.set_shader_parameter("progress", 0.0)
@@ -576,11 +581,11 @@ func _check_both_locked() -> void:
 			tw_burn.tween_method(func(v: float): _transition_mat.set_shader_parameter("progress", v), 0.0, 1.0, 0.95).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 			tw_burn.tween_callback(func():
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-				SceneLoader.change_scene(get_tree(), MULTIPLAYER_CHASE_SCENE, "双方英雄就绪，正在切入追缉战场...")
+				SceneLoader.change_scene(get_tree(), next_scene, next_hint)
 			)
 		else:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-			SceneLoader.change_scene(get_tree(), MULTIPLAYER_CHASE_SCENE, "双方英雄就绪，正在切入追缉战场...")
+			SceneLoader.change_scene(get_tree(), next_scene, next_hint)
 
 
 func _build_transition_overlay() -> void:

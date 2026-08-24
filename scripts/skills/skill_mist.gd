@@ -256,7 +256,9 @@ func _spawn_cast_vfx(caster: CharacterBody3D, parent: Node) -> void:
 	var disc_mat := StandardMaterial3D.new()
 	disc_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	disc_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	disc_mat.albedo_color = Color(0.03, 0.02, 0.06, 0.70)
+	disc_mat.albedo_color = Color(0.28, 0.22, 0.42, 0.70)
+	# Null when the texture is not imported yet; the disc then reads as the old flat circle.
+	disc_mat.albedo_texture = VfxTextures.get_tex(VfxTextures.SMOKE)
 	ground_disc.material_override = disc_mat
 	vfx.add_child(ground_disc)
 

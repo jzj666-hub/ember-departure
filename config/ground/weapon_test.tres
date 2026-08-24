@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="GroundPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/ground_preset.gd" id="1_gnd"]
+
+[resource]
+script = ExtResource("1_gnd")
+plane_color = Color(0.15, 0.16, 0.18, 1)
+plane_roughness = 0.95
+grid_major_every = 10
+grid_major_color = Color(0.42, 0.47, 0.56, 0.5)
+grid_minor_color = Color(0.3, 0.32, 0.36, 0.2)

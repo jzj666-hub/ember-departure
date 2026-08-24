@@ -4,6 +4,9 @@ extends "res://scripts/skills/skill_base.gd"
 ## Entities are launched into parabolic air flight to varying degrees depending on distance from epicenter, then stay knocked down until standing up.
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const SonicRingShader = preload("res://shaders/sonic_boom_ring.gdshader")
+const WindCutterShader = preload("res://shaders/wind_cutter.gdshader")
+const ShockwaveDomeShader = preload("res://shaders/shockwave_dome.gdshader")
 
 var slam_radius: float = 8.0
 var leap_height: float = 4.5
@@ -14,7 +17,7 @@ var max_launch_height: float = 3.2
 var fall_duration: float = 1.8
 
 static var _fissure_material: StandardMaterial3D = null
-static var _shockwave_material: StandardMaterial3D = null
+static var _shockwave_material: ShaderMaterial = null
 
 
 func get_id() -> String:
@@ -253,18 +256,28 @@ func _spawn_fracture_vfx(impact_pos: Vector3, parent: Node) -> void:
 
 	_ensure_materials()
 
-	var shockwave := MeshInstance3D.new()
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.3
-	torus.outer_radius = 0.7
-	torus.rings = 24
-	torus.ring_segments = 12
-	shockwave.mesh = torus
-	shockwave.position.y = 0.05
-	var wave_mat := _shockwave_material.duplicate() as StandardMaterial3D
-	shockwave.material_override = wave_mat
-	vfx.add_child(shockwave)
+	# 1. 3D 半球形地表爆破气浪罩 (Expanding 3D Blast Hemisphere Dome)
+	var blast_dome := MeshInstance3D.new()
+	var dome_mesh := SphereMesh.new()
+	dome_mesh.radius = slam_radius * 0.85
+	dome_mesh.height = slam_radius * 0.85
+	dome_mesh.is_hemisphere = true
+	dome_mesh.radial_segments = 36
+	dome_mesh.rings = 18
+	blast_dome.mesh = dome_mesh
+	blast_dome.position.y = 0.02
 
+	var dome_mat := ShaderMaterial.new()
+	dome_mat.shader = ShockwaveDomeShader
+	dome_mat.set_shader_parameter("dome_color", Color(1.0, 0.48, 0.12, 0.95))
+	dome_mat.set_shader_parameter("core_color", Color(1.8, 1.4, 0.9, 1.0))
+	dome_mat.set_shader_parameter("fade", 1.0)
+	dome_mat.set_shader_parameter("rim_power", 2.2)
+	VfxTextures.bind(dome_mat, "noise_tex", VfxTextures.WIND_SLASH, "noise_mix", 0.4)
+	blast_dome.material_override = dome_mat
+	vfx.add_child(blast_dome)
+
+	# 2. 地面地裂纹理带 (Ground Magma Fissure Mesh)
 	var fissure_inst := MeshInstance3D.new()
 	fissure_inst.mesh = _build_unified_fissure_mesh(slam_radius)
 	fissure_inst.position.y = 0.04
@@ -272,10 +285,13 @@ func _spawn_fracture_vfx(impact_pos: Vector3, parent: Node) -> void:
 	fissure_inst.material_override = f_mat
 	vfx.add_child(fissure_inst)
 
-	var max_wave_scale := slam_radius * 1.8
+	# 气浪罩与地裂整体动画
 	var tw := vfx.create_tween().set_parallel(true)
-	tw.tween_property(shockwave, "scale", Vector3(max_wave_scale, 1.0, max_wave_scale), 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.tween_property(wave_mat, "albedo_color:a", 0.0, 0.40).set_ease(Tween.EASE_IN)
+	tw.tween_property(blast_dome, "scale", Vector3(1.4, 1.6, 1.4), 0.28).from(Vector3(0.1, 0.1, 0.1)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_method(func(v: float):
+		if is_instance_valid(dome_mat):
+			dome_mat.set_shader_parameter("fade", v)
+	, 1.0, 0.0, 0.28).set_ease(Tween.EASE_IN)
 	tw.tween_property(fissure_inst, "scale", Vector3(1.0, 1.0, 1.0), 0.25).from(Vector3(0.08, 1.0, 0.08)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 	tw.chain().tween_property(f_mat, "albedo_color:a", 0.0, 2.2).set_ease(Tween.EASE_IN)
@@ -289,14 +305,19 @@ func _ensure_materials() -> void:
 		_fissure_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_fissure_material.vertex_color_use_as_albedo = true
 		_fissure_material.albedo_color = Color(1.0, 0.65, 0.25, 1.0)
+		_fissure_material.albedo_texture = VfxTextures.get_tex(VfxTextures.GROUND_CRACK)
+		_fissure_material.uv1_scale = Vector3(2.0, 2.0, 2.0)
 		_fissure_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 
 	if _shockwave_material == null:
-		_shockwave_material = StandardMaterial3D.new()
-		_shockwave_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_shockwave_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_shockwave_material.albedo_color = Color(1.0, 0.55, 0.15, 0.9)
-		_shockwave_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_shockwave_material = ShaderMaterial.new()
+		_shockwave_material.shader = SonicRingShader
+		_shockwave_material.set_shader_parameter("ring_color", Color(1.0, 0.55, 0.15, 0.9))
+		_shockwave_material.set_shader_parameter("fade", 1.0)
+		_shockwave_material.set_shader_parameter("thickness", 0.18)
+		VfxTextures.bind(_shockwave_material, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 1.0)
+		VfxTextures.bind_ramp(_shockwave_material, VfxTextures.RAMP_FIRE, 0.85)
+
 
 
 func _build_unified_fissure_mesh(radius: float) -> ImmediateMesh:
@@ -521,7 +542,9 @@ func preload_assets() -> void:
 
 func get_warmup_materials() -> Array:
 	_ensure_materials()
-	return [_fissure_material, _shockwave_material]
+	var m_dome := ShaderMaterial.new()
+	m_dome.shader = ShockwaveDomeShader
+	return [_fissure_material, _shockwave_material, m_dome]
 
 
 func dispel_actor(actor: CharacterBody3D) -> void:

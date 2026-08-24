@@ -12,6 +12,12 @@ const BlockRegistryScript = preload("res://scripts/block_registry.gd")
 const MapDataScript = preload("res://scripts/map_data.gd")
 const SpecialPathRecorderScript = preload("res://scripts/special_path_recorder.gd")
 const NavGridScript = preload("res://scripts/nav_grid.gd")
+const EditorTutorialScript = preload("res://scripts/map_editor/editor_tutorial.gd")
+const EditorGuideDialogScript = preload("res://scripts/map_editor/editor_guide_dialog.gd")
+const EditorSaveLoadDialogScript = preload("res://scripts/map_editor/editor_save_load_dialog.gd")
+const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
+const ENV_PRESET = preload("res://config/env/editor_blue.tres")
+const GROUND_PRESET = preload("res://config/ground/editor_slate.tres")
 
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 const GROUND_HALF := 20.0
@@ -97,17 +103,65 @@ const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 var _custom_font: Font = null
 static var tutorial_on_start := false
 
-var _interactive_tutorial_active := false
-var _tutorial_step := 0
-var _interactive_banner: PanelContainer
-var _interactive_banner_style: StyleBoxFlat
-var _interactive_banner_icon: TextureRect
-var _interactive_banner_title: Label
-var _interactive_banner_sub: Label
-var _interactive_complete_dialog: PanelContainer
-var _tutorial_arrow: Node3D = null
-var _tutorial_arrow_base_pos: Vector3 = Vector3.ZERO
-var _tutorial_arrow_time: float = 0.0
+## Extracted UI sub-controllers (scripts/map_editor/). Built in _ready() before any _build_* call.
+var _tutorial
+var _guide
+var _save_load
+
+## Probe-compat mirrors: tools/_probe_interactive_tutorial.gd reads these names via Object.get().
+var _interactive_tutorial_active: bool:
+	get:
+		return _tutorial != null and bool(_tutorial.active)
+var _tutorial_step: int:
+	get:
+		if _tutorial == null:
+			return 0
+		return int(_tutorial.step)
+var _interactive_banner: PanelContainer:
+	get:
+		if _tutorial == null:
+			return null
+		return _tutorial.banner
+var _interactive_banner_title: Label:
+	get:
+		if _tutorial == null:
+			return null
+		return _tutorial.banner_title
+var _interactive_complete_dialog: PanelContainer:
+	get:
+		if _tutorial == null:
+			return null
+		return _tutorial.complete_dialog
+var _tutorial_arrow: Node3D:
+	get:
+		if _tutorial == null:
+			return null
+		return _tutorial.arrow
+var _tutorial_dialog: PanelContainer:
+	get:
+		if _guide == null:
+			return null
+		return _guide.dialog
+var _tutorial_page: int:
+	get:
+		if _guide == null:
+			return 0
+		return int(_guide.page)
+var _tutorial_page_lbl: Label:
+	get:
+		if _guide == null:
+			return null
+		return _guide.page_lbl
+var _tutorial_prev_btn: Button:
+	get:
+		if _guide == null:
+			return null
+		return _guide.prev_btn
+var _tutorial_next_btn: Button:
+	get:
+		if _guide == null:
+			return null
+		return _guide.next_btn
 
 var _hud_canvas: CanvasLayer
 var _top_panel: PanelContainer
@@ -115,14 +169,6 @@ var _left_panel: PanelContainer
 var _right_panel: PanelContainer
 var _bottom_panel: PanelContainer
 var _ui_panels_visible := true
-
-var _tutorial_dialog: PanelContainer
-var _tutorial_page := 0
-var _tutorial_title_lbl: Label
-var _tutorial_page_lbl: Label
-var _tutorial_content_box: VBoxContainer
-var _tutorial_prev_btn: Button
-var _tutorial_next_btn: Button
 
 var _status_label: Label
 var _mode_label: Label
@@ -132,11 +178,6 @@ var _recording_banner: PanelContainer
 var _recording_banner_style: StyleBoxFlat
 var _recording_banner_title: Label
 var _recording_banner_sub: Label
-var _save_load_dialog: PanelContainer
-var _map_file_list: ItemList
-var _map_name_edit: LineEdit
-var _dialog_title_label: Label
-var _is_save_dialog := true
 
 var _status_text := "地图编辑器就绪"
 
@@ -166,6 +207,9 @@ class EditorCrosshair extends Control:
 
 func _ready() -> void:
 	AudioManagerScript.init_pool(self)
+	_tutorial = EditorTutorialScript.new(self)
+	_guide = EditorGuideDialogScript.new(self)
+	_save_load = EditorSaveLoadDialogScript.new(self)
 	if ResourceLoader.exists(FONT_PATH):
 		_custom_font = load(FONT_PATH) as Font
 
@@ -196,84 +240,13 @@ func _ready() -> void:
 # --- Scene Construction -----------------------------------------------------
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.24, 0.32, 0.47)
-	sky_mat.sky_horizon_color = Color(0.58, 0.60, 0.63)
-	sky_mat.ground_bottom_color = Color(0.12, 0.12, 0.14)
-	sky_mat.ground_horizon_color = Color(0.58, 0.60, 0.63)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.45
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.glow_enabled = true
-
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	add_child(world_env)
-
-	var light := DirectionalLight3D.new()
-	light.light_energy = 1.2
-	light.shadow_enabled = true
-	light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(-35.0), 0.0))
-	add_child(light)
+	WorldBuilderScript.build_environment(self, ENV_PRESET)
 
 
 func _build_ground() -> void:
-	var body := StaticBody3D.new()
-	body.name = "Ground"
-
-	var mesh := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(GROUND_HALF * 2.0, GROUND_HALF * 2.0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.18, 0.20, 0.23)
-	mat.roughness = 0.9
-	plane.material = mat
-	mesh.mesh = plane
-	body.add_child(mesh)
-
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(GROUND_HALF * 2.0, 0.4, GROUND_HALF * 2.0)
-	shape.shape = box
-	shape.position = Vector3(0.0, -0.2, 0.0)
-	body.add_child(shape)
-	add_child(body)
-
-	add_child(_make_grid())
+	WorldBuilderScript.build_ground(self, GROUND_PRESET, GROUND_HALF)
 
 
-func _make_grid() -> MeshInstance3D:
-	var mesh := ImmediateMesh.new()
-	var half := int(GROUND_HALF)
-	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	for i in range(-half, half + 1):
-		var major := i % 5 == 0
-		var colour := Color(0.45, 0.50, 0.60, 0.6) if major else Color(0.28, 0.30, 0.35, 0.3)
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(i, 0.0, -half))
-		mesh.surface_add_vertex(Vector3(i, 0.0, half))
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(-half, 0.0, i))
-		mesh.surface_add_vertex(Vector3(half, 0.0, i))
-	mesh.surface_end()
-
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.vertex_color_use_as_albedo = true
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-
-	var node := MeshInstance3D.new()
-	node.mesh = mesh
-	node.material_override = mat
-	node.position.y = 0.003
-	return node
 
 
 func _build_visual_helpers() -> void:
@@ -319,7 +292,7 @@ func _build_visual_helpers() -> void:
 	_beacon_instance.visible = false
 	add_child(_beacon_instance)
 
-	_build_tutorial_arrow()
+	_tutorial.build_arrow()
 
 	_highlight = _make_wire_cube()
 	add_child(_highlight)
@@ -496,8 +469,7 @@ func _set_mode(new_mode: int) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 			_mode_label.text = "模式: 【操控试玩】 (按 R 录制特殊跳跃, 按 TAB 返回自由建造)"
 			_set_status("WASD移动，Shift加速，Space跳跃，按 R 开启特殊路径录制")
-			if _interactive_tutorial_active and _tutorial_step == 3:
-				_advance_interactive_tutorial(4)
+			_tutorial.on_mode_play_test()
 		EditorMode.RECORD_SPECIAL_PATH:
 			_npc.intent_source = _player_intent_source
 			_follow_camera.current = true
@@ -509,13 +481,7 @@ func _set_mode(new_mode: int) -> void:
 			_recorder.start_recording()
 			AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/ready.ogg", 2.0)
 			_update_recording_hud(SpecialPathRecorderScript.State.ARMED_WAITING_FOR_REST, "已响应 R 键！请在起点格就绪起跳...")
-			if _interactive_tutorial_active and _tutorial_step == 4:
-				if _interactive_banner != null:
-					_interactive_banner_icon.modulate = Color(1.0, 0.35, 0.35)
-					_interactive_banner_title.text = "🎯 新手任务 (5/8): 🔴 正在录制！助跑起跳！"
-					_interactive_banner_sub.text = "已响应【R 键】！动作捕获就绪：请全力助跑起跳跨越断台，录制空中飞跃轨迹！"
-					_interactive_banner_style.border_color = Color(1.0, 0.35, 0.35)
-				_set_status("🔴【R 键已响应】录制就绪！请立即向对面跳台助跑起跳！")
+			_tutorial.on_mode_record()
 
 
 func _set_status(msg: String) -> void:
@@ -532,10 +498,7 @@ func _process(delta: float) -> void:
 	if _mode == EditorMode.BUILD and not _cursor_free:
 		_update_builder_flight(delta)
 		_update_targeting()
-	if _tutorial_arrow != null and _tutorial_arrow.visible:
-		_tutorial_arrow_time += delta
-		_tutorial_arrow.position = _tutorial_arrow_base_pos + Vector3(0.0, 0.45 + sin(_tutorial_arrow_time * 5.0) * 0.15, 0.0)
-		_tutorial_arrow.rotation.y += delta * 2.5
+	_tutorial.process_arrow(delta)
 
 
 func _physics_process(delta: float) -> void:
@@ -588,19 +551,13 @@ func _unhandled_input(event: InputEvent) -> void:
 						return
 				KEY_ESCAPE:
 					get_viewport().set_input_as_handled()
-					if _interactive_complete_dialog != null and _interactive_complete_dialog.visible:
-						_interactive_complete_dialog.visible = false
-						_interactive_tutorial_active = false
-						if _interactive_banner != null:
-							_interactive_banner.visible = false
-						_update_ui_panels_visibility()
+					if _tutorial.dismiss_complete_dialog():
 						return
-					if _tutorial_dialog != null and _tutorial_dialog.visible:
-						_close_tutorial_dialog()
+					if _guide.is_open():
+						_guide.close()
 						return
-					if _save_load_dialog != null and _save_load_dialog.visible:
-						_save_load_dialog.visible = false
-						_update_ui_panels_visibility()
+					if _save_load.is_open():
+						_save_load.close()
 						return
 					if _mode != EditorMode.BUILD:
 						_recorder.cancel_recording()
@@ -758,8 +715,7 @@ func _handle_x_double_tap() -> void:
 		_redraw_special_paths()
 		_refresh_special_paths_ui()
 		_set_status("已成功删除特殊路径：%s" % del_id)
-		if _interactive_tutorial_active and _tutorial_step == 6:
-			_advance_interactive_tutorial(7)
+		_tutorial.on_special_path_deleted()
 	else:
 		_last_x_press_time = now
 		_last_x_target_id = _hovered_special_path_id
@@ -836,8 +792,7 @@ func _npc_occupies_cell(cell: Vector3i) -> bool:
 
 
 func _place_block_at(grid_pos: Vector3i) -> void:
-	if _interactive_tutorial_active and _tutorial_step == 1:
-		_set_status("【任务 2/6】请先拆除上方浮动箭头指示的方块，暂不可放置新方块哦")
+	if _tutorial.block_place_locked():
 		return
 
 	if not _can_place_block(grid_pos, _current_block_size):
@@ -864,14 +819,7 @@ func _place_block_at(grid_pos: Vector3i) -> void:
 	_set_status("已放置方块 [%s] 尺寸 %s 于 (%d, %d, %d)" % [
 		inst.type_id, inst.size, grid_pos.x, grid_pos.y, grid_pos.z])
 
-	if _interactive_tutorial_active and _tutorial_step == 0:
-		var center_pos := Vector3(
-			float(grid_pos.x) + float(_current_block_size.x) * 0.5,
-			float(grid_pos.y) + float(_current_block_size.y),
-			float(grid_pos.z) + float(_current_block_size.z) * 0.5
-		)
-		_show_tutorial_arrow_at(center_pos)
-		_advance_interactive_tutorial(1)
+	_tutorial.on_block_placed(grid_pos, _current_block_size)
 
 
 func _remove_block_at(grid_pos: Vector3i) -> void:
@@ -893,9 +841,7 @@ func _remove_block_at(grid_pos: Vector3i) -> void:
 	_redraw_special_paths()
 	_set_status("已删除方块 %s" % b_id)
 
-	if _interactive_tutorial_active and _tutorial_step == 1:
-		_hide_tutorial_arrow()
-		_advance_interactive_tutorial(2)
+	_tutorial.on_block_removed()
 
 
 func _clear_all_blocks() -> void:
@@ -927,35 +873,20 @@ func _on_special_path_recorded(path_data: Dictionary) -> void:
 	_update_recording_hud(SpecialPathRecorderScript.State.COMPLETED, msg)
 	_set_status("特殊跳跃录制成功！按 R 继续录制下一条，按 TAB 切换自由建造")
 
-	if _interactive_tutorial_active and _tutorial_step == 4:
-		# Reset character back to starting platform (Platform 1)
-		_npc.global_position = Vector3(1.0, 1.2, 1.0)
-		_npc.velocity = Vector3.ZERO
-		_follow_camera.snap()
-		_advance_interactive_tutorial(5)
+	_tutorial.on_path_recorded()
 
 
 func _on_special_path_failed(reason: String) -> void:
 	_set_mode(EditorMode.PLAY_TEST)
 	_update_recording_hud(SpecialPathRecorderScript.State.IDLE, reason, true)
 	_set_status("录制未完成/取消：%s" % reason)
-	if _interactive_tutorial_active and _tutorial_step == 4:
-		_advance_interactive_tutorial(4)
+	_tutorial.on_path_record_failed()
 
 
 func _on_recorder_state_changed(state: int, message: String) -> void:
 	_set_status(message)
 	_update_recording_hud(state, message)
-	if _interactive_tutorial_active and _tutorial_step == 4 and _interactive_banner != null:
-		match state:
-			SpecialPathRecorderScript.State.ARMED_WAITING_FOR_REST:
-				_interactive_banner_sub.text = "已响应【R 键】！就绪状态：请原地起跑并助跑跳向对面跳台！"
-			SpecialPathRecorderScript.State.GROUND_RECORDING:
-				_interactive_banner_sub.text = "🏃 检测到助跑加速！请全力向前起跳！"
-			SpecialPathRecorderScript.State.AIRBORNE_RECORDING:
-				_interactive_banner_sub.text = "🚀 腾空检测中！正在逐帧捕获空中抛物线轨迹..."
-			SpecialPathRecorderScript.State.COMPLETED:
-				_interactive_banner_sub.text = "🎯 成功着陆！正在提取跳跃轨迹并生成路径..."
+	_tutorial.on_recorder_state(state)
 
 
 func _redraw_special_paths() -> void:
@@ -1036,15 +967,7 @@ func _recalculate_npc_path(target: Vector3) -> void:
 		_set_status("已规划路径：包含 %d 个航路点，其中 %d 段将逐帧复刻录制的特殊跳跃" % [
 			points.size(), links.size()])
 
-	if _interactive_tutorial_active:
-		if _tutorial_step == 2:
-			if _interactive_banner != null:
-				_interactive_banner_title.text = "🎯 新手任务 (3/8): 正在寻路..."
-				_interactive_banner_sub.text = "👀 人机已启动智能寻路规划，请静静观察其移动路线与落点！"
-		elif _tutorial_step == 5:
-			if _interactive_banner != null:
-				_interactive_banner_title.text = "🎯 新手任务 (6/8): 见证飞跃..."
-				_interactive_banner_sub.text = "👀 观察 NPC 正在起跑并复刻你的跳跃航迹飞跃断台！"
+	_tutorial.on_path_planned()
 
 
 func _on_repath_requested(from_pos: Vector3, target: Vector3) -> void:
@@ -1232,7 +1155,7 @@ func _build_hud() -> void:
 	guide_btn.text = "📖 特殊操作指南"
 	if _custom_font != null:
 		guide_btn.add_theme_font_override("font", _custom_font)
-	guide_btn.pressed.connect(func() -> void: _open_tutorial_dialog(0))
+	guide_btn.pressed.connect(func() -> void: _guide.open(0))
 	top_box.add_child(guide_btn)
 
 	var b_toggle_btn := Button.new()
@@ -1255,14 +1178,14 @@ func _build_hud() -> void:
 	save_btn.text = "保存 (Save)"
 	if _custom_font != null:
 		save_btn.add_theme_font_override("font", _custom_font)
-	save_btn.pressed.connect(func() -> void: _open_save_dialog())
+	save_btn.pressed.connect(func() -> void: _save_load.open_save())
 	top_box.add_child(save_btn)
 
 	var load_btn := Button.new()
 	load_btn.text = "加载 (Load)"
 	if _custom_font != null:
 		load_btn.add_theme_font_override("font", _custom_font)
-	load_btn.pressed.connect(func() -> void: _open_load_dialog())
+	load_btn.pressed.connect(func() -> void: _save_load.open_load())
 	top_box.add_child(load_btn)
 
 	var clear_btn := Button.new()
@@ -1512,341 +1435,10 @@ func _build_hud() -> void:
 	bottom_box.add_child(_status_label)
 
 	_build_recording_banner()
-	_build_save_load_dialog()
-	_build_tutorial_dialog()
-	_build_interactive_tutorial_hud()
+	_save_load.build()
+	_guide.build()
+	_tutorial.build_hud()
 	_refresh_special_paths_ui()
-
-
-func _build_interactive_tutorial_hud() -> void:
-	_interactive_banner = PanelContainer.new()
-	_interactive_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_interactive_banner.offset_left = -340
-	_interactive_banner.offset_right = 340
-	_interactive_banner.offset_top = 58
-	_interactive_banner.offset_bottom = 150
-	_interactive_banner.custom_minimum_size = Vector2(680, 92)
-	_interactive_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_interactive_banner.visible = false
-
-	_interactive_banner_style = StyleBoxFlat.new()
-	_interactive_banner_style.bg_color = Color(0.09, 0.12, 0.17, 0.96)
-	_interactive_banner_style.set_corner_radius_all(10)
-	_interactive_banner_style.set_border_width_all(2)
-	_interactive_banner_style.border_color = Color(1.0, 0.85, 0.25)
-	_interactive_banner_style.set_content_margin_all(12)
-	_interactive_banner.add_theme_stylebox_override("panel", _interactive_banner_style)
-	_hud_canvas.add_child(_interactive_banner)
-
-	var hbox := HBoxContainer.new()
-	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	hbox.add_theme_constant_override("separation", 14)
-	_interactive_banner.add_child(hbox)
-
-	_interactive_banner_icon = TextureRect.new()
-	if ResourceLoader.exists("res://assets/UI_assets/cubes.svg"):
-		_interactive_banner_icon.texture = load("res://assets/UI_assets/cubes.svg")
-	_interactive_banner_icon.custom_minimum_size = Vector2(46, 46)
-	_interactive_banner_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_interactive_banner_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_interactive_banner_icon.modulate = Color(1.0, 0.85, 0.25)
-	hbox.add_child(_interactive_banner_icon)
-
-	var vbox := VBoxContainer.new()
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 4)
-	hbox.add_child(vbox)
-
-	_interactive_banner_title = Label.new()
-	if _custom_font != null:
-		_interactive_banner_title.add_theme_font_override("font", _custom_font)
-	_interactive_banner_title.add_theme_font_size_override("font_size", 20)
-	_interactive_banner_title.modulate = Color(1.0, 0.88, 0.3)
-	vbox.add_child(_interactive_banner_title)
-
-	_interactive_banner_sub = Label.new()
-	_interactive_banner_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	if _custom_font != null:
-		_interactive_banner_sub.add_theme_font_override("font", _custom_font)
-	_interactive_banner_sub.add_theme_font_size_override("font_size", 14)
-	_interactive_banner_sub.modulate = Color(0.9, 0.92, 0.96)
-	vbox.add_child(_interactive_banner_sub)
-
-	_build_interactive_complete_dialog()
-
-
-func _build_interactive_complete_dialog() -> void:
-	_interactive_complete_dialog = PanelContainer.new()
-	_interactive_complete_dialog.set_anchors_preset(Control.PRESET_CENTER)
-	_interactive_complete_dialog.offset_left = -290
-	_interactive_complete_dialog.offset_right = 290
-	_interactive_complete_dialog.offset_top = -180
-	_interactive_complete_dialog.offset_bottom = 180
-	_interactive_complete_dialog.custom_minimum_size = Vector2(580, 360)
-	_interactive_complete_dialog.visible = false
-
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.10, 0.12, 0.16, 0.98)
-	style.set_corner_radius_all(12)
-	style.set_border_width_all(2)
-	style.border_color = Color(0.3, 0.9, 0.6)
-	style.set_content_margin_all(22)
-	_interactive_complete_dialog.add_theme_stylebox_override("panel", style)
-	_hud_canvas.add_child(_interactive_complete_dialog)
-
-	var vbox := VBoxContainer.new()
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_theme_constant_override("separation", 14)
-	_interactive_complete_dialog.add_child(vbox)
-
-	var icon := TextureRect.new()
-	if ResourceLoader.exists("res://assets/UI_assets/freedom-dove.svg"):
-		icon.texture = load("res://assets/UI_assets/freedom-dove.svg")
-	icon.custom_minimum_size = Vector2(56, 56)
-	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon.modulate = Color(0.3, 0.9, 0.6)
-	vbox.add_child(icon)
-
-	var title := Label.new()
-	title.text = "🎉 恭喜！新手互动教学圆满完成！"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	if _custom_font != null:
-		title.add_theme_font_override("font", _custom_font)
-	title.add_theme_font_size_override("font_size", 24)
-	title.modulate = Color(0.3, 0.9, 0.6)
-	vbox.add_child(title)
-
-	var desc := Label.new()
-	desc.text = "您已成功掌握方块搭建、物理寻路测试、极限跳跃示范录制与轨迹管理！\n\n💡 进阶揭秘：其实人机本身是可以从断点跳过去的，甚至有更强的高阶跳跃处理机制，请敬请期待这些 NPC 战士的惊艳表现吧！\n\n随时按【B 键】可在【属性面板（鼠标指针）】与【沉浸自由视角】之间一键切换；快去打造您的专属对决战场吧！"
-	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	if _custom_font != null:
-		desc.add_theme_font_override("font", _custom_font)
-	desc.add_theme_font_size_override("font_size", 14)
-	desc.modulate = Color(0.88, 0.92, 0.96)
-	vbox.add_child(desc)
-
-	var finish_btn := Button.new()
-	finish_btn.text = "开始自由探索创作 (Start)"
-	if _custom_font != null:
-		finish_btn.add_theme_font_override("font", _custom_font)
-	finish_btn.add_theme_font_size_override("font_size", 16)
-	finish_btn.custom_minimum_size = Vector2(220, 42)
-	finish_btn.pressed.connect(func() -> void:
-		_interactive_complete_dialog.visible = false
-		_interactive_tutorial_active = false
-		_interactive_banner.visible = false
-		_update_ui_panels_visibility()
-	)
-	vbox.add_child(finish_btn)
-
-
-func start_interactive_tutorial() -> void:
-	_interactive_tutorial_active = true
-	_ui_panels_visible = false
-	_update_ui_panels_visibility()
-	_set_mode(EditorMode.BUILD)
-	_advance_interactive_tutorial(0)
-
-
-func _on_npc_arrived_destination(_target: Vector3) -> void:
-	if not _interactive_tutorial_active:
-		return
-	if _tutorial_step == 2:
-		if _interactive_banner != null:
-			_interactive_banner_icon.modulate = Color(0.3, 0.9, 0.6)
-			_interactive_banner_title.text = "🎯 新手任务 (3/8): 寻路抵达！"
-			_interactive_banner_sub.text = "✅ 人机已按物理规划成功抵达目标点！停留 2 秒即将进入下一阶段..."
-		await get_tree().create_timer(2.0).timeout
-		if _interactive_tutorial_active and _tutorial_step == 2:
-			_advance_interactive_tutorial(3)
-	elif _tutorial_step == 5:
-		if _interactive_banner != null:
-			_interactive_banner_icon.modulate = Color(0.3, 0.9, 0.6)
-			_interactive_banner_title.text = "🎯 新手任务 (6/8): 飞跃完成！"
-			_interactive_banner_sub.text = "✅ 人机已完美复刻跳跃并成功着陆！停留 2 秒进入下一阶段..."
-		await get_tree().create_timer(2.0).timeout
-		if _interactive_tutorial_active and _tutorial_step == 5:
-			_advance_interactive_tutorial(6)
-
-
-func _advance_interactive_tutorial(step: int) -> void:
-	_tutorial_step = step
-	if _interactive_banner == null:
-		return
-	_interactive_banner.visible = true
-
-	match step:
-		0:
-			if ResourceLoader.exists("res://assets/UI_assets/cubes.svg"):
-				_interactive_banner_icon.texture = load("res://assets/UI_assets/cubes.svg")
-				_interactive_banner_icon.modulate = Color(0.3, 0.85, 1.0)
-			_interactive_banner_title.text = "🎯 新手任务 (1/8): 放置方块"
-			_interactive_banner_sub.text = "准星对准地面任意网格，点击【鼠标左键 (LMB)】放置一个方块。"
-			_interactive_banner_style.border_color = Color(0.3, 0.85, 1.0)
-			_set_status("【任务 1/8】点击鼠标左键放置方块")
-
-		1:
-			if ResourceLoader.exists("res://assets/UI_assets/cross-mark.svg"):
-				_interactive_banner_icon.texture = load("res://assets/UI_assets/cross-mark.svg")
-				_interactive_banner_icon.modulate = Color(1.0, 0.4, 0.4)
-			_interactive_banner_title.text = "🎯 新手任务 (2/8): 拆除方块"
-			_interactive_banner_sub.text = "太棒了！现在准星对准带有金箭头的方块，点击【鼠标右键 (RMB)】将其拆除。"
-			_interactive_banner_style.border_color = Color(1.0, 0.4, 0.4)
-			_set_status("【任务 2/8】准星对准方块点击鼠标右键拆除")
-
-		2:
-			if ResourceLoader.exists("res://assets/UI_assets/run.svg"):
-				_interactive_banner_icon.texture = load("res://assets/UI_assets/run.svg")
-				_interactive_banner_icon.modulate = Color(0.3, 0.9, 0.6)
-			_interactive_banner_title.text = "🎯 新手任务 (3/8): 人机智能寻路"
-			_interactive_banner_sub.text = "人机拥有强大的物理能力寻路！按住【Shift + 鼠标左键】点击地面较远处，指挥 NPC 走过去。"
-			_interactive_banner_style.border_color = Color(0.3, 0.9, 0.6)
-			_set_status("【任务 3/8】按住 Shift 点击左键测试 NPC 寻路")
-
-		3:
-			_spawn_tutorial_glowing_platforms()
-			if ResourceLoader.exists("res://assets/UI_assets/cctv-camera.svg"):
-				_interactive_banner_icon.texture = load("res://assets/UI_assets/cctv-camera.svg")
-				_interactive_banner_icon.modulate = Color(1.0, 0.85, 0.25)
-			_interactive_banner_title.text = "🎯 新手任务 (4/8): 切换自身操控"
-			_interactive_banner_sub.text = "场景中央已生成两座测试跳台！按【TAB 键】切换为自己操控角色，并站到起点方块上方。"
-			_interactive_banner_style.border_color = Color(1.0, 0.85, 0.25)
-			_set_status("【任务 4/8】按 TAB 键切换为自身操控")
-
-		4:
-			if ResourceLoader.exists("res://assets/UI_assets/digital-trace.svg"):
-				_interactive_banner_icon.texture = load("res://assets/UI_assets/digital-trace.svg")
-				_interactive_banner_icon.modulate = Color(0.2, 0.85, 1.0)
-			_interactive_banner_title.text = "🎯 新手任务 (5/8): 录制极限跳跃轨迹"
-			_interactive_banner_sub.text = "人机原本无法判断断台可达。按【R 键】就绪，然后助跑跳到对面跳台！系统将自动捕获你的跳跃轨迹，作为人机新的可行路径！"
-			_interactive_banner_style.border_color = Color(0.2, 0.85, 1.0)
-			_set_status("【任务 5/8】按 R 键就绪，全力助跑起跳跨越断台，让人机学习新路径")
-
-		5:
-			if ResourceLoader.exists("res://assets/UI_assets/claw-slashes.svg"):
-				_interactive_banner_icon.texture = load("res://assets/UI_assets/claw-slashes.svg")
-				_interactive_banner_icon.modulate = Color(1.0, 0.88, 0.3)
-			_interactive_banner_title.text = "🎯 新手任务 (6/8): 见证 AI 学习并复现跳跃"
-			_interactive_banner_sub.text = "录制成功！角色已重置回起点。按【TAB 键】回到自由建造，按住【Shift + 左键】点击对面跳台，见证 NPC 完美复现你的跳跃！"
-			_interactive_banner_style.border_color = Color(1.0, 0.88, 0.3)
-			_set_status("【任务 6/8】角色已回起点，按 TAB 建造模式并 Shift+左键 命令 NPC 跨越跳跃")
-
-		6:
-			if ResourceLoader.exists("res://assets/UI_assets/cross-mark.svg"):
-				_interactive_banner_icon.texture = load("res://assets/UI_assets/cross-mark.svg")
-				_interactive_banner_icon.modulate = Color(1.0, 0.45, 0.3)
-			_interactive_banner_title.text = "🎯 新手任务 (7/8): 精准删除特殊跳跃轨迹"
-			_interactive_banner_sub.text = "学会录制也要学会清理！将准星对准空中刚才录制的绿色轨迹线条，【连续按两下 X 键】将其精准删除。"
-			_interactive_banner_style.border_color = Color(1.0, 0.45, 0.3)
-			_set_status("【任务 7/8】准星对准绿色轨迹线条，连续按两次 X 键精准删除")
-
-		7:
-			_interactive_banner.visible = false
-			_interactive_complete_dialog.visible = true
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-			_cursor_free = true
-			AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/mission_completed.ogg", 2.0)
-			_set_status("恭喜！您已圆满完成地图工坊新手互动教学！")
-
-
-func _spawn_tutorial_glowing_platforms() -> void:
-	_clear_all_blocks()
-	_nav.clear_special_paths()
-
-	# Platform 1
-	var inst1 := BlockRegistry.BlockInstance.new()
-	inst1.id = "tut_plat_1"
-	inst1.type_id = "cube"
-	inst1.grid_pos = Vector3i(0, 1, 0)
-	inst1.size = Vector3i(2, 1, 2)
-	var body1 := BlockRegistry.create_body(inst1)
-	inst1.body_node = body1
-	add_child(body1)
-	_blocks[inst1.id] = inst1
-	for c in inst1.get_occupied_cells():
-		_cell_to_block_id[c] = inst1.id
-		_nav.set_block(c, true)
-
-	# Platform 2 (Across gap of 2 blocks, separated at z = 4)
-	var inst2 := BlockRegistry.BlockInstance.new()
-	inst2.id = "tut_plat_2"
-	inst2.type_id = "cube"
-	inst2.grid_pos = Vector3i(0, 1, 4)
-	inst2.size = Vector3i(2, 1, 2)
-	var body2 := BlockRegistry.create_body(inst2)
-	inst2.body_node = body2
-	add_child(body2)
-	_blocks[inst2.id] = inst2
-	for c in inst2.get_occupied_cells():
-		_cell_to_block_id[c] = inst2.id
-		_nav.set_block(c, true)
-
-	_nav.rebuild()
-	_nav.set_capability(_npc)
-
-	# Position NPC on Platform 1
-	_npc.global_position = Vector3(1.0, 1.2, 1.0)
-	_npc.velocity = Vector3.ZERO
-	_builder_camera.global_position = Vector3(1.0, 3.5, -3.5)
-	_cam_pitch = -0.35
-	_cam_yaw = 0.0
-	_apply_builder_orientation()
-
-
-func _build_tutorial_arrow() -> void:
-	if _tutorial_arrow != null:
-		return
-	_tutorial_arrow = Node3D.new()
-	_tutorial_arrow.name = "TutorialFloatingArrow"
-	_tutorial_arrow.visible = false
-
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.85, 0.2)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.85, 0.2)
-	mat.emission_energy_multiplier = 2.5
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-
-	# Arrow Head (Downward Cone)
-	var head_mesh := MeshInstance3D.new()
-	var cone := CylinderMesh.new()
-	cone.top_radius = 0.35
-	cone.bottom_radius = 0.0
-	cone.height = 0.55
-	cone.material = mat
-	head_mesh.mesh = cone
-	head_mesh.position.y = 0.28
-	_tutorial_arrow.add_child(head_mesh)
-
-	# Arrow Shaft (Cylinder)
-	var shaft_mesh := MeshInstance3D.new()
-	var shaft := CylinderMesh.new()
-	shaft.top_radius = 0.12
-	shaft.bottom_radius = 0.12
-	shaft.height = 0.45
-	shaft.material = mat
-	shaft_mesh.mesh = shaft
-	shaft_mesh.position.y = 0.75
-	_tutorial_arrow.add_child(shaft_mesh)
-
-	add_child(_tutorial_arrow)
-
-
-func _show_tutorial_arrow_at(world_pos: Vector3) -> void:
-	if _tutorial_arrow == null:
-		_build_tutorial_arrow()
-	_tutorial_arrow_base_pos = world_pos
-	_tutorial_arrow_time = 0.0
-	_tutorial_arrow.position = world_pos + Vector3(0, 0.45, 0)
-	_tutorial_arrow.visible = true
-
-
-func _hide_tutorial_arrow() -> void:
-	if _tutorial_arrow != null:
-		_tutorial_arrow.visible = false
 
 
 func _toggle_ui_panels_mode() -> void:
@@ -1872,16 +1464,28 @@ func _update_ui_panels_visibility() -> void:
 		_set_status("【沉浸模式】鼠标隐藏，视角旋转与放置。按 B 呼出属性面板与指针")
 
 
+## Tutorial entrypoints kept on MapEditor: called by title_screen and tools/_probe_interactive_tutorial.gd.
+func start_interactive_tutorial() -> void:
+	_tutorial.start()
+
+
+## Coroutine: NPC destination-reached signal handler. Awaits the tutorial's 2s hold.
+func _on_npc_arrived_destination(target: Vector3) -> void:
+	await _tutorial.on_npc_arrived(target)
+
+
+# --- Probe-compat shims: tools/_probe_map_editor_guide.gd calls these by name ----
+
 func _open_tutorial_dialog(page: int = 0) -> void:
-	_render_tutorial_page(page)
-	_tutorial_dialog.visible = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	_cursor_free = true
+	_guide.open(page)
 
 
 func _close_tutorial_dialog() -> void:
-	_tutorial_dialog.visible = false
-	_update_ui_panels_visibility()
+	_guide.close()
+
+
+func _render_tutorial_page(page: int) -> void:
+	_guide._render_page(page)
 
 
 func _make_label(txt: String) -> Label:
@@ -1891,276 +1495,6 @@ func _make_label(txt: String) -> Label:
 		l.add_theme_font_override("font", _custom_font)
 	l.add_theme_font_size_override("font_size", 12)
 	return l
-
-
-func _build_tutorial_dialog() -> void:
-	_tutorial_dialog = PanelContainer.new()
-	_tutorial_dialog.set_anchors_preset(Control.PRESET_CENTER)
-	_tutorial_dialog.offset_left = -340
-	_tutorial_dialog.offset_right = 340
-	_tutorial_dialog.offset_top = -240
-	_tutorial_dialog.offset_bottom = 240
-	_tutorial_dialog.custom_minimum_size = Vector2(680, 480)
-	_tutorial_dialog.visible = false
-
-	var diag_style := StyleBoxFlat.new()
-	diag_style.bg_color = Color(0.09, 0.11, 0.15, 0.98)
-	diag_style.set_corner_radius_all(12)
-	diag_style.set_border_width_all(2)
-	diag_style.border_color = Color(0.2, 0.8, 1.0)
-	diag_style.set_content_margin_all(20)
-	_tutorial_dialog.add_theme_stylebox_override("panel", diag_style)
-	_hud_canvas.add_child(_tutorial_dialog)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 14)
-	_tutorial_dialog.add_child(vbox)
-
-	# Header: Title + Page counter + Close button
-	var head_hbox := HBoxContainer.new()
-	head_hbox.add_theme_constant_override("separation", 12)
-	vbox.add_child(head_hbox)
-
-	var icon_tex := TextureRect.new()
-	if ResourceLoader.exists("res://assets/UI_assets/cubes.svg"):
-		icon_tex.texture = load("res://assets/UI_assets/cubes.svg")
-	icon_tex.custom_minimum_size = Vector2(32, 32)
-	icon_tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	icon_tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	icon_tex.modulate = Color(0.2, 0.85, 1.0)
-	head_hbox.add_child(icon_tex)
-
-	_tutorial_title_lbl = Label.new()
-	_tutorial_title_lbl.text = "地图工坊 · 特殊操作与录制指南"
-	if _custom_font != null:
-		_tutorial_title_lbl.add_theme_font_override("font", _custom_font)
-	_tutorial_title_lbl.add_theme_font_size_override("font_size", 22)
-	_tutorial_title_lbl.modulate = Color(0.2, 0.9, 1.0)
-	_tutorial_title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head_hbox.add_child(_tutorial_title_lbl)
-
-	_tutorial_page_lbl = Label.new()
-	_tutorial_page_lbl.text = "第 1 / 4 页"
-	if _custom_font != null:
-		_tutorial_page_lbl.add_theme_font_override("font", _custom_font)
-	_tutorial_page_lbl.add_theme_font_size_override("font_size", 16)
-	_tutorial_page_lbl.modulate = Color(1.0, 0.85, 0.3)
-	head_hbox.add_child(_tutorial_page_lbl)
-
-	var skip_btn := Button.new()
-	skip_btn.text = " 关闭 (ESC) "
-	if _custom_font != null:
-		skip_btn.add_theme_font_override("font", _custom_font)
-	skip_btn.pressed.connect(_close_tutorial_dialog)
-	head_hbox.add_child(skip_btn)
-
-	# Content Area
-	_tutorial_content_box = VBoxContainer.new()
-	_tutorial_content_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_tutorial_content_box.add_theme_constant_override("separation", 12)
-	vbox.add_child(_tutorial_content_box)
-
-	# Bottom Navigation
-	var nav_hbox := HBoxContainer.new()
-	nav_hbox.add_theme_constant_override("separation", 24)
-	nav_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(nav_hbox)
-
-	_tutorial_prev_btn = Button.new()
-	_tutorial_prev_btn.text = "← 上一页 (Previous)"
-	if _custom_font != null:
-		_tutorial_prev_btn.add_theme_font_override("font", _custom_font)
-	_tutorial_prev_btn.add_theme_font_size_override("font_size", 16)
-	_tutorial_prev_btn.custom_minimum_size = Vector2(160, 40)
-	_tutorial_prev_btn.pressed.connect(func() -> void: _render_tutorial_page(_tutorial_page - 1))
-	nav_hbox.add_child(_tutorial_prev_btn)
-
-	_tutorial_next_btn = Button.new()
-	_tutorial_next_btn.text = "下一页 (Next) →"
-	if _custom_font != null:
-		_tutorial_next_btn.add_theme_font_override("font", _custom_font)
-	_tutorial_next_btn.add_theme_font_size_override("font_size", 16)
-	_tutorial_next_btn.custom_minimum_size = Vector2(180, 40)
-	_tutorial_next_btn.pressed.connect(func() -> void:
-		if _tutorial_page >= 3:
-			_close_tutorial_dialog()
-		else:
-			_render_tutorial_page(_tutorial_page + 1)
-	)
-	nav_hbox.add_child(_tutorial_next_btn)
-
-	_render_tutorial_page(0)
-
-
-func _render_tutorial_page(page: int) -> void:
-	_tutorial_page = clamp(page, 0, 3)
-	if _tutorial_page_lbl != null:
-		_tutorial_page_lbl.text = "第 %d / 4 页" % (_tutorial_page + 1)
-	if _tutorial_prev_btn != null:
-		_tutorial_prev_btn.disabled = (_tutorial_page == 0)
-	if _tutorial_next_btn != null:
-		if _tutorial_page == 3:
-			_tutorial_next_btn.text = "开始探索创作 (Start) ✓"
-		else:
-			_tutorial_next_btn.text = "下一页 (Next) →"
-
-	if _tutorial_content_box == null:
-		return
-
-	for child in _tutorial_content_box.get_children():
-		child.queue_free()
-
-	match _tutorial_page:
-		0:
-			_build_tutorial_page_0()
-		1:
-			_build_tutorial_page_1()
-		2:
-			_build_tutorial_page_2()
-		3:
-			_build_tutorial_page_3()
-
-
-func _build_tutorial_page_0() -> void:
-	var sub := Label.new()
-	sub.text = "【一、视角模式与面板一键切换】"
-	if _custom_font != null:
-		sub.add_theme_font_override("font", _custom_font)
-	sub.add_theme_font_size_override("font_size", 18)
-	sub.modulate = Color(1.0, 0.85, 0.3)
-	_tutorial_content_box.add_child(sub)
-
-	_add_tutorial_step(_tutorial_content_box, "B", "按 B 键切换面板与沉浸视角",
-		"按 B 键在【属性面板模式（鼠标指针工作，可点击调整尺寸材质与保存）】与【沉浸模式（鼠标隐藏，自由旋转视角飞行与瞄准）】之间随时切换。")
-	_add_tutorial_step(_tutorial_content_box, "TAB", "按 TAB 键切换建造与角色试跑",
-		"在【第一人称自由飞行建造】与【第三人称角色试玩】之间一键切换。试跑可实地检验跳跃距离与落点。")
-	_add_tutorial_step(_tutorial_content_box, "W", "自由飞行巡航控制",
-		"飞行模式下使用 WASD 水平巡航，Space 空格向上升空，Ctrl / C 向下降落，鼠标滚轮可调节飞行速度。")
-
-
-func _build_tutorial_page_1() -> void:
-	var sub := Label.new()
-	sub.text = "【二、多尺寸方块与材质快速搭建】"
-	if _custom_font != null:
-		sub.add_theme_font_override("font", _custom_font)
-	sub.add_theme_font_size_override("font_size", 18)
-	sub.modulate = Color(1.0, 0.85, 0.3)
-	_tutorial_content_box.add_child(sub)
-
-	_add_tutorial_step(_tutorial_content_box, "LMB", "鼠标左键 (LMB) 放置方块",
-		"准星对准地面或已有方块表面，点击左键放置当前选中的方块。在左侧面板可自由选择 Cube、Slab、Stairs 等类型与 2x1x1、4x1x2 等丰富尺寸。")
-	_add_tutorial_step(_tutorial_content_box, "RMB", "鼠标右键 (RMB) 快速拆除",
-		"准星对准任意方块，点击右键即可瞬间拆除整块积木。")
-	_add_tutorial_step(_tutorial_content_box, "SHIFT", "Shift + 左键 实时指定 NPC 寻路测试",
-		"准星对准地图任意地面，按住 Shift 点击左键，可指定 NPC 按照其真实物理能力规划路径前往该点。")
-
-
-func _build_tutorial_page_2() -> void:
-	var sub := Label.new()
-	sub.text = "【三、特殊跳跃 / 极限身法航迹录制】"
-	if _custom_font != null:
-		sub.add_theme_font_override("font", _custom_font)
-	sub.add_theme_font_size_override("font_size", 18)
-	sub.modulate = Color(1.0, 0.85, 0.3)
-	_tutorial_content_box.add_child(sub)
-
-	_add_tutorial_step(_tutorial_content_box, "R", "按 R 键就绪录制特殊跳跃",
-		"按 TAB 切换为角色试跑后，在悬崖起跳边缘停下脚步保持静止。按 R 键进入录制准备状态。")
-	_add_tutorial_step(_tutorial_content_box, "SPACE", "助跑起跳与自动航迹截取",
-		"顶部横幅提示【🟢 准备就绪，可以起跳】后，向目标高台全力助跑起跳。落地瞬间系统会自动从你起跳前的最后一帧零速度点开始，完整截取空中跳跃航迹！")
-	_add_tutorial_step(_tutorial_content_box, "AI", "NPC (AI) 智能学习复现",
-		"录制成功的航迹会化为绿色轨迹线。AI 追缉或寻路时，到达该起跳点会自动无缝复现你的跳跃动作！")
-
-
-func _build_tutorial_page_3() -> void:
-	var sub := Label.new()
-	sub.text = "【四、轨迹精准删除与地图导出对决】"
-	if _custom_font != null:
-		sub.add_theme_font_override("font", _custom_font)
-	sub.add_theme_font_size_override("font_size", 18)
-	sub.modulate = Color(1.0, 0.85, 0.3)
-	_tutorial_content_box.add_child(sub)
-
-	_add_tutorial_step(_tutorial_content_box, "X", "连按两下 X 快速删除选中轨迹",
-		"在建造模式下，将准星对准空中的绿色特殊跳跃轨迹线（轨迹会高亮），连续按两下 X 键即可精准删除该段轨迹记录。")
-	_add_tutorial_step(_tutorial_content_box, "SAVE", "保存地图 (Save Map)",
-		"按 B 键呼出顶部工具栏，点击【保存 (Save)】输入地图名称，即可将包含全部方块与特殊跳跃的地图永久保存。")
-	_add_tutorial_step(_tutorial_content_box, "PLAY", "导入追缉模式实战对决",
-		"返回主大厅选择【开始追缉逃生 (Pursuit)】，在地图列表中选择你刚才保存的地图，即可在自己打造的专属战场中展开 1v1 极限逃生对决！")
-
-
-func _add_tutorial_step(parent: VBoxContainer, key_or_tag: String, title: String, desc: String) -> void:
-	var card := PanelContainer.new()
-	var c_style := StyleBoxFlat.new()
-	c_style.bg_color = Color(0.13, 0.15, 0.20, 0.85)
-	c_style.set_corner_radius_all(8)
-	c_style.set_border_width_all(1)
-	c_style.border_color = Color(0.25, 0.30, 0.40)
-	c_style.set_content_margin_all(10)
-	card.add_theme_stylebox_override("panel", c_style)
-	parent.add_child(card)
-
-	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 12)
-	card.add_child(hbox)
-
-	var icon_widget := _create_tutorial_icon(key_or_tag)
-	hbox.add_child(icon_widget)
-
-	var vbox := VBoxContainer.new()
-	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vbox.add_theme_constant_override("separation", 3)
-	hbox.add_child(vbox)
-
-	var t_lbl := Label.new()
-	t_lbl.text = title
-	if _custom_font != null:
-		t_lbl.add_theme_font_override("font", _custom_font)
-	t_lbl.add_theme_font_size_override("font_size", 16)
-	t_lbl.modulate = Color(0.35, 0.9, 1.0)
-	vbox.add_child(t_lbl)
-
-	var d_lbl := Label.new()
-	d_lbl.text = desc
-	d_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	if _custom_font != null:
-		d_lbl.add_theme_font_override("font", _custom_font)
-	d_lbl.add_theme_font_size_override("font_size", 13)
-	d_lbl.modulate = Color(0.85, 0.88, 0.92, 0.9)
-	vbox.add_child(d_lbl)
-
-
-func _create_tutorial_icon(key_tag: String) -> Control:
-	var png_path := "res://assets/buttons_pattern/%s.png" % key_tag
-	if ResourceLoader.exists(png_path):
-		var tex := TextureRect.new()
-		tex.texture = load(png_path)
-		tex.custom_minimum_size = Vector2(36, 36)
-		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		return tex
-
-	# If no png exists, render an attractive keycap badge
-	var badge := PanelContainer.new()
-	var b_style := StyleBoxFlat.new()
-	b_style.bg_color = Color(0.20, 0.24, 0.32, 0.95)
-	b_style.set_corner_radius_all(6)
-	b_style.set_border_width_all(1)
-	b_style.border_color = Color(0.4, 0.6, 0.8)
-	b_style.set_content_margin_all(6)
-	badge.add_theme_stylebox_override("panel", b_style)
-	badge.custom_minimum_size = Vector2(40, 36)
-
-	var lbl := Label.new()
-	lbl.text = key_tag
-	if _custom_font != null:
-		lbl.add_theme_font_override("font", _custom_font)
-	lbl.add_theme_font_size_override("font_size", 14)
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lbl.modulate = Color(1.0, 0.88, 0.35)
-	badge.add_child(lbl)
-	return badge
 
 
 func _build_recording_banner() -> void:
@@ -2356,126 +1690,8 @@ func _refresh_special_paths_ui() -> void:
 			_redraw_special_paths()
 			_refresh_special_paths_ui()
 			_set_status("已删除特殊路径 %s" % path_id)
-			if _interactive_tutorial_active and _tutorial_step == 6:
-				_advance_interactive_tutorial(7)
+			_tutorial.on_special_path_deleted()
 		)
 		btns.add_child(del_btn)
 
 		_special_path_list_box.add_child(card)
-
-
-# --- Save/Load Dialog Modal -------------------------------------------------
-
-func _build_save_load_dialog() -> void:
-	_save_load_dialog = PanelContainer.new()
-	_save_load_dialog.set_anchors_preset(Control.PRESET_CENTER)
-	_save_load_dialog.custom_minimum_size = Vector2(400, 320)
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.12, 0.14, 0.18, 0.96)
-	style.border_color = Color(0.35, 0.4, 0.5)
-	style.set_border_width_all(1)
-	style.set_content_margin_all(14)
-	_save_load_dialog.add_theme_stylebox_override("panel", style)
-	_save_load_dialog.visible = false
-	_hud_canvas.add_child(_save_load_dialog)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
-	_save_load_dialog.add_child(vbox)
-
-	_dialog_title_label = Label.new()
-	_dialog_title_label.text = "保存地图"
-	_dialog_title_label.add_theme_font_size_override("font_size", 16)
-	vbox.add_child(_dialog_title_label)
-
-	var name_box := HBoxContainer.new()
-	vbox.add_child(name_box)
-	name_box.add_child(Label.new())
-	(name_box.get_child(0) as Label).text = "地图名称:"
-
-	_map_name_edit = LineEdit.new()
-	_map_name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_map_name_edit.text = _map_name
-	name_box.add_child(_map_name_edit)
-
-	var list_lbl := Label.new()
-	list_lbl.text = "已有地图存档列表:"
-	list_lbl.add_theme_font_size_override("font_size", 12)
-	vbox.add_child(list_lbl)
-
-	_map_file_list = ItemList.new()
-	_map_file_list.custom_minimum_size = Vector2(0, 140)
-	_map_file_list.item_selected.connect(func(idx: int) -> void:
-		var fn: String = _map_file_list.get_item_text(idx)
-		_map_name_edit.text = fn.get_basename()
-	)
-	vbox.add_child(_map_file_list)
-
-	var action_box := HBoxContainer.new()
-	action_box.alignment = BoxContainer.ALIGNMENT_END
-	action_box.add_theme_constant_override("separation", 10)
-	vbox.add_child(action_box)
-
-	var confirm_btn := Button.new()
-	confirm_btn.text = "确认"
-	confirm_btn.pressed.connect(_on_dialog_confirm)
-	action_box.add_child(confirm_btn)
-
-	var cancel_btn := Button.new()
-	cancel_btn.text = "取消"
-	cancel_btn.pressed.connect(func() -> void:
-		_save_load_dialog.visible = false
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	)
-	action_box.add_child(cancel_btn)
-
-
-func _open_save_dialog() -> void:
-	_is_save_dialog = true
-	_dialog_title_label.text = "保存地图 (Save Map)"
-	_map_name_edit.text = _map_name
-	_populate_map_list()
-	_save_load_dialog.visible = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-
-
-func _open_load_dialog() -> void:
-	_is_save_dialog = false
-	_dialog_title_label.text = "加载地图 (Load Map)"
-	_populate_map_list()
-	_save_load_dialog.visible = true
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-
-
-func _populate_map_list() -> void:
-	_map_file_list.clear()
-	var maps := MapDataScript.list_available_maps()
-	for m in maps:
-		var fn: String = m.get("file_name", "")
-		var name_str: String = m.get("name", "")
-		var b_count: int = m.get("blocks_count", 0)
-		var sp_count: int = m.get("special_paths_count", 0)
-		var text := "%s (%s · %d 方块 · %d 特殊路径)" % [fn, name_str, b_count, sp_count]
-		_map_file_list.add_item(text)
-		_map_file_list.set_item_metadata(_map_file_list.item_count - 1, m.get("path", ""))
-
-
-func _on_dialog_confirm() -> void:
-	var chosen_name := _map_name_edit.text.strip_edges()
-	if chosen_name.is_empty():
-		chosen_name = "未命名地图"
-
-	if _is_save_dialog:
-		_map_name = chosen_name
-		save_current_map(chosen_name)
-	else:
-		var selected := _map_file_list.get_selected_items()
-		if selected.size() > 0:
-			var path: String = str(_map_file_list.get_item_metadata(selected[0]))
-			load_map(path)
-		elif not chosen_name.is_empty():
-			var fallback_path := MapDataScript.USER_MAPS_DIR.path_join(chosen_name + ".json")
-			load_map(fallback_path)
-
-	_save_load_dialog.visible = false
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

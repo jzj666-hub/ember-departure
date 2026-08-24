@@ -1,0 +1,12 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://iqf45u3gm0oi"]
+
+[ext_resource type="Texture2D" uid="uid://blydl2a33ux0e" path="res://assets/characters/npc_4/npc.fbm/Mat_12___Pbr_Diffuse.png" id="1_7t8eb"]
+
+[resource]
+resource_name = "Mat_12___Pbr"
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+albedo_texture = ExtResource("1_7t8eb")
+emission_enabled = true
+emission_energy_multiplier = 0.0

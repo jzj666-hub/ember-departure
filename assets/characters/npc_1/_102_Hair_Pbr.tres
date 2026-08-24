@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://db1ogk7kl615s"]
+
+[ext_resource type="Texture2D" uid="uid://b6txvcgffcijh" path="res://assets/characters/npc_1/npc_1.fbm/_102_Hair_Pbr_Diffuse.tga" id="1_h35e3"]
+
+[resource]
+resource_name = "_102_Hair_Pbr"
+vertex_color_use_as_albedo = true
+albedo_texture = ExtResource("1_h35e3")
+emission_enabled = true
+emission_energy_multiplier = 0.0

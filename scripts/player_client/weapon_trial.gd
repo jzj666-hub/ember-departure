@@ -13,6 +13,10 @@ const WeaponConfigScript = preload("res://scripts/weapon_config.gd")
 const WeaponGraphScript = preload("res://scripts/weapon_graph.gd")
 const KeybindManagerScript = preload("res://scripts/keybind_manager.gd")
 const KeybindRemapPanelScript = preload("res://scripts/keybind_remap_panel.gd")
+const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
+const ENV_PRESET = preload("res://config/env/weapon_trial.tres")
+const GROUND_PRESET = preload("res://config/ground/weapon_trial.tres")
+const GROUND_HALF := 40.0
 
 const TITLE_SCENE := "res://scenes/player_client/title_screen.tscn"
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
@@ -90,90 +94,11 @@ func _load_configured_weapons() -> void:
 
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.18, 0.24, 0.35)
-	sky_mat.sky_horizon_color = Color(0.55, 0.52, 0.58)
-	sky_mat.ground_bottom_color = Color(0.10, 0.10, 0.12)
-	sky_mat.ground_horizon_color = Color(0.45, 0.48, 0.55)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.45
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.glow_enabled = true
-	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	env.glow_intensity = 0.9
-	env.glow_bloom = 0.2
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.35, 0.38, 0.45)
-	env.fog_density = 0.008
-
-	var env_node := WorldEnvironment.new()
-	env_node.environment = env
-	add_child(env_node)
-
-	var sun := DirectionalLight3D.new()
-	sun.light_energy = 1.2
-	sun.shadow_enabled = true
-	sun.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(-35.0), 0.0))
-	add_child(sun)
-
-	var fill := DirectionalLight3D.new()
-	fill.light_energy = 0.4
-	fill.shadow_enabled = false
-	fill.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-20.0), deg_to_rad(145.0), 0.0))
-	add_child(fill)
+	WorldBuilderScript.build_environment(self, ENV_PRESET)
 
 
 func _build_ground() -> void:
-	var body := StaticBody3D.new()
-	body.name = "Ground"
-
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(80.0, 80.0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.14, 0.15, 0.18)
-	mat.roughness = 0.95
-	plane.material = mat
-
-	var mesh_inst := MeshInstance3D.new()
-	mesh_inst.mesh = plane
-	body.add_child(mesh_inst)
-
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(80.0, 0.4, 80.0)
-	shape.shape = box
-	shape.position.y = -0.2
-	body.add_child(shape)
-	add_child(body)
-
-	# Decorative arena ring
-	var ring_mesh := ImmediateMesh.new()
-	ring_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
-	var segs := 64
-	for i in range(segs + 1):
-		var ang := TAU * float(i) / float(segs)
-		var vx := cos(ang) * 12.0
-		var vz := sin(ang) * 12.0
-		ring_mesh.surface_set_color(Color(0.9, 0.55, 0.2, 0.6))
-		ring_mesh.surface_add_vertex(Vector3(vx, 0.005, vz))
-	ring_mesh.surface_end()
-
-	var r_mat := StandardMaterial3D.new()
-	r_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	r_mat.vertex_color_use_as_albedo = true
-	r_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-
-	var ring_inst := MeshInstance3D.new()
-	ring_inst.mesh = ring_mesh
-	ring_inst.material_override = r_mat
-	add_child(ring_inst)
+	WorldBuilderScript.build_ground(self, GROUND_PRESET, GROUND_HALF)
 
 
 func _build_dummy() -> void:

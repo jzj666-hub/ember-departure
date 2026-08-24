@@ -3,6 +3,7 @@ extends Control
 ## Supports hosting, direct IP joining, UDP beacon discovery, profile sync, and full-screen Room Chamber view.
 
 const CHASE_MULTIPLAYER_SCENE := "res://scenes/player_client/chase_multiplayer.tscn"
+const PVP_MULTIPLAYER_SCENE := "res://scenes/player_client/sword_pvp_multiplayer.tscn"
 const TITLE_SCENE := "res://scenes/player_client/title_screen.tscn"
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 const FONT_GLITCH_PATH := "res://assets/Fonts/Long_Cang,Rubik_Glitch/Rubik_Glitch/RubikGlitch-Regular.ttf"
@@ -24,6 +25,12 @@ var _port_edit: LineEdit
 var _role_runner_chk: CheckBox
 var _role_chaser_chk: CheckBox
 var _map_option_btn: OptionButton
+var _mode_option_btn: OptionButton
+var _role_row_lbl: Label
+var _role_box: HBoxContainer
+var _map_row_lbl: Label
+var _join_status_lbl: Label
+var _sync_wait := 0.0
 var _host_start_listen_btn: Button
 
 var _join_ip_edit: LineEdit
@@ -87,6 +94,7 @@ func _ready() -> void:
 
 	_build_ui()
 	_load_map_options()
+	_apply_mode_visibility()
 	_update_local_ip_display()
 	_switch_tab(true)
 	_update_all_views()
@@ -207,12 +215,24 @@ func _build_browser_view() -> void:
 	_port_edit.custom_minimum_size = Vector2(140, 30)
 	host_grid.add_child(_port_edit)
 
+	var mode_lbl := Label.new()
+	mode_lbl.text = "对战模式:"
+	host_grid.add_child(mode_lbl)
+	_mode_option_btn = OptionButton.new()
+	_mode_option_btn.custom_minimum_size = Vector2(260, 32)
+	_mode_option_btn.add_item("追缉逃生 (Chase)", NetworkManager.GameMode.CHASE)
+	_mode_option_btn.add_item("刀剑决斗 (Sword PVP)", NetworkManager.GameMode.SWORD_PVP)
+	_mode_option_btn.item_selected.connect(_on_mode_selected)
+	host_grid.add_child(_mode_option_btn)
+
 	var r_lbl := Label.new()
 	r_lbl.text = "房主身份:"
 	host_grid.add_child(r_lbl)
 	var role_box := HBoxContainer.new()
 	role_box.add_theme_constant_override("separation", 20)
 	host_grid.add_child(role_box)
+	_role_row_lbl = r_lbl
+	_role_box = role_box
 
 	var bgroup := ButtonGroup.new()
 	_role_runner_chk = CheckBox.new()
@@ -231,6 +251,7 @@ func _build_browser_view() -> void:
 	var m_lbl := Label.new()
 	m_lbl.text = "对战地图:"
 	host_grid.add_child(m_lbl)
+	_map_row_lbl = m_lbl
 	_map_option_btn = OptionButton.new()
 	_map_option_btn.custom_minimum_size = Vector2(260, 32)
 	_map_option_btn.item_selected.connect(_on_map_selected)
@@ -274,6 +295,13 @@ func _build_browser_view() -> void:
 	_join_direct_btn.custom_minimum_size = Vector2(90, 32)
 	_join_direct_btn.pressed.connect(_on_join_direct_pressed)
 	direct_hbox.add_child(_join_direct_btn)
+
+	_join_status_lbl = Label.new()
+	_join_status_lbl.text = ""
+	_join_status_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_join_status_lbl.add_theme_font_size_override("font_size", 13)
+	_join_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_join_panel.add_child(_join_status_lbl)
 
 	var disc_hbox := HBoxContainer.new()
 	disc_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -513,7 +541,9 @@ func _update_all_views() -> void:
 		return
 
 	# Update Chamber Elements
-	_chamber_map_name_lbl.text = NetworkManager.selected_map_path.get_file().get_basename() if not NetworkManager.selected_map_path.is_empty() else "默认平地地图"
+	var mode_tag := "刀剑决斗" if NetworkManager.game_mode == NetworkManager.GameMode.SWORD_PVP else "追缉逃生"
+	var map_tag_txt := NetworkManager.selected_map_path.get_file().get_basename() if not NetworkManager.selected_map_path.is_empty() else "默认平地地图"
+	_chamber_map_name_lbl.text = "%s · %s" % [mode_tag, map_tag_txt]
 
 	var host_name := NetworkManager.local_player_name if NetworkManager.is_host else NetworkManager.remote_player_name
 	var host_av_type := NetworkManager.local_avatar_type if NetworkManager.is_host else NetworkManager.remote_avatar_type
@@ -526,15 +556,9 @@ func _update_all_views() -> void:
 	_host_avatar_holder.add_child(ProfileManager.create_avatar_circle(72.0, host_av_type, host_av_key, Color(1.0, 0.85, 0.2)))
 
 	if host_is_runner:
-		_host_role_name_lbl.text = "逃生者 (RUNNER)"
-		_host_role_name_lbl.modulate = Color(0.3, 1.0, 0.5)
-		_host_role_badge.texture = load("res://assets/UI_assets/running-shoe.svg")
-		_host_role_badge.modulate = Color(0.3, 1.0, 0.5)
+		_apply_role_badge(_host_role_name_lbl, _host_role_badge, true)
 	else:
-		_host_role_name_lbl.text = "追缉者 (CHASER)"
-		_host_role_name_lbl.modulate = Color(1.0, 0.35, 0.25)
-		_host_role_badge.texture = load("res://assets/UI_assets/wyvern.svg")
-		_host_role_badge.modulate = Color(1.0, 0.35, 0.25)
+		_apply_role_badge(_host_role_name_lbl, _host_role_badge, false)
 
 	# Remote Peer slot
 	var peer_connected := (NetworkManager.connected_peer_id > 0)
@@ -562,16 +586,8 @@ func _update_all_views() -> void:
 		_remote_role_name_lbl.modulate = Color(0.6, 0.65, 0.75, 0.6)
 		_remote_role_badge.texture = load("res://assets/UI_assets/extra-time.svg")
 		_remote_role_badge.modulate = Color(0.6, 0.65, 0.75, 0.6)
-	elif peer_is_runner:
-		_remote_role_name_lbl.text = "逃生者 (RUNNER)"
-		_remote_role_name_lbl.modulate = Color(0.3, 1.0, 0.5)
-		_remote_role_badge.texture = load("res://assets/UI_assets/running-shoe.svg")
-		_remote_role_badge.modulate = Color(0.3, 1.0, 0.5)
 	else:
-		_remote_role_name_lbl.text = "追缉者 (CHASER)"
-		_remote_role_name_lbl.modulate = Color(1.0, 0.35, 0.25)
-		_remote_role_badge.texture = load("res://assets/UI_assets/wyvern.svg")
-		_remote_role_badge.modulate = Color(1.0, 0.35, 0.25)
+		_apply_role_badge(_remote_role_name_lbl, _remote_role_badge, peer_is_runner)
 
 	if _remote_ready_status_lbl != null:
 		if not peer_connected:
@@ -603,6 +619,27 @@ func _update_all_views() -> void:
 		_chamber_launch_btn.visible = false
 
 
+## Paints one player card's role slot. Sword PVP is symmetric: both sides read 决斗者.
+func _apply_role_badge(name_lbl: Label, badge: TextureRect, is_runner: bool) -> void:
+	if name_lbl == null or badge == null:
+		return
+	if NetworkManager.game_mode == NetworkManager.GameMode.SWORD_PVP:
+		name_lbl.text = "决斗者 (DUELIST)"
+		name_lbl.modulate = Color(1.0, 0.82, 0.35)
+		badge.texture = load("res://assets/UI_assets/winged-sword.svg")
+		badge.modulate = Color(1.0, 0.82, 0.35)
+	elif is_runner:
+		name_lbl.text = "逃生者 (RUNNER)"
+		name_lbl.modulate = Color(0.3, 1.0, 0.5)
+		badge.texture = load("res://assets/UI_assets/running-shoe.svg")
+		badge.modulate = Color(0.3, 1.0, 0.5)
+	else:
+		name_lbl.text = "追缉者 (CHASER)"
+		name_lbl.modulate = Color(1.0, 0.35, 0.25)
+		badge.texture = load("res://assets/UI_assets/wyvern.svg")
+		badge.modulate = Color(1.0, 0.35, 0.25)
+
+
 func _switch_tab(is_host_tab: bool) -> void:
 	_host_panel.visible = is_host_tab
 	_join_panel.visible = not is_host_tab
@@ -628,6 +665,27 @@ func _load_map_options() -> void:
 func _on_map_selected(idx: int) -> void:
 	var path: String = str(_map_option_btn.get_item_metadata(idx))
 	NetworkManager.set_host_map(path)
+
+
+## _on_mode_selected(): host picks match type. Post: NetworkManager.game_mode synced to client.
+func _on_mode_selected(idx: int) -> void:
+	NetworkManager.set_host_mode(_mode_option_btn.get_item_id(idx) as NetworkManager.GameMode)
+	_apply_mode_visibility()
+
+
+## Sword PVP is symmetric and uses its own fixed arena: role and map rows do not apply.
+func _apply_mode_visibility() -> void:
+	if _mode_option_btn == null:
+		return
+	var is_pvp := _mode_option_btn.get_selected_id() == int(NetworkManager.GameMode.SWORD_PVP)
+	if _role_row_lbl != null:
+		_role_row_lbl.visible = not is_pvp
+	if _role_box != null:
+		_role_box.visible = not is_pvp
+	if _map_row_lbl != null:
+		_map_row_lbl.visible = not is_pvp
+	if _map_option_btn != null:
+		_map_option_btn.visible = not is_pvp
 
 
 func _update_local_ip_display() -> void:
@@ -666,12 +724,18 @@ func _on_create_host_pressed() -> void:
 		port = NetworkManager.DEFAULT_PORT
 	var role: NetworkManager.Role = NetworkManager.Role.RUNNER if _role_runner_chk.button_pressed else NetworkManager.Role.CHASER
 	var map_path := str(_map_option_btn.get_selected_metadata())
-	var err := NetworkManager.create_host(port, role, map_path)
+	var mode: NetworkManager.GameMode = _mode_option_btn.get_selected_id() as NetworkManager.GameMode
+	var err := NetworkManager.create_host(port, role, map_path, mode)
 	if err == OK:
 		_is_in_chamber = true
 		_update_all_views()
+	else:
+		_host_start_listen_btn.text = "创建失败 (错误码 %d) · 端口可能被占用" % err
+		_host_start_listen_btn.modulate = Color(1.0, 0.4, 0.35)
 
 
+## Join never enters the chamber optimistically: create_client() only opens a socket.
+## The chamber opens from _on_connected_to_server(); failure/timeout reports back here.
 func _on_join_direct_pressed() -> void:
 	var ip := _join_ip_edit.text.strip_edges()
 	if ip.is_empty():
@@ -681,13 +745,23 @@ func _on_join_direct_pressed() -> void:
 		port = NetworkManager.DEFAULT_PORT
 	var err := NetworkManager.join_game(ip, port)
 	if err == OK:
-		_is_in_chamber = true
-		_update_all_views()
+		_set_join_status("⏳ 正在连接 %s:%d ..." % [ip, port], Color(1.0, 0.85, 0.35))
+		_join_direct_btn.disabled = true
+	else:
+		_set_join_status("❌ 无法创建连接 (错误码 %d)，请检查端口是否被占用" % err, Color(1.0, 0.4, 0.35))
+	_update_all_views()
+
+
+func _set_join_status(msg: String, tint: Color) -> void:
+	if _join_status_lbl == null:
+		return
+	_join_status_lbl.text = msg
+	_join_status_lbl.modulate = tint
 
 
 func _on_server_item_activated(idx: int) -> void:
-	var key := _server_list.get_item_text(idx)
-	if NetworkManager.discovered_servers.has(key):
+	var key = _server_list.get_item_metadata(idx)
+	if key != null and NetworkManager.discovered_servers.has(key):
 		var info: Dictionary = NetworkManager.discovered_servers[key]
 		var ip: String = info.get("ip", "127.0.0.1")
 		var port: int = int(info.get("port", NetworkManager.DEFAULT_PORT))
@@ -700,9 +774,16 @@ func _update_discovered_servers_list() -> void:
 	_server_list.clear()
 	for k in NetworkManager.discovered_servers:
 		var d: Dictionary = NetworkManager.discovered_servers[k]
-		var r_str := "逃生者" if d.get("role", 0) == 0 else "追缉者"
-		var text := "%s (房主: %s | 地图: %s)" % [k, r_str, d.get("map", "默认")]
+		var is_pvp: bool = int(d.get("mode", 0)) == int(NetworkManager.GameMode.SWORD_PVP)
+		var text := ""
+		if is_pvp:
+			text = "%s (刀剑决斗)" % k
+		else:
+			var r_str := "逃生者" if d.get("role", 0) == 0 else "追缉者"
+			text = "%s (追缉逃生 | 房主: %s | 地图: %s)" % [k, r_str, d.get("map", "默认")]
 		_server_list.add_item(text)
+		# Metadata holds the raw "ip:port" key; the display text is decorated and must not be parsed back.
+		_server_list.set_item_metadata(_server_list.item_count - 1, k)
 
 
 func _on_toggle_ready_pressed() -> void:
@@ -716,7 +797,10 @@ func _on_host_launch_pressed() -> void:
 
 
 func _on_game_start_synced(_map_path: String, _host_role_val: int) -> void:
-	SceneLoader.change_scene(get_tree(), CHASE_MULTIPLAYER_SCENE, "双方就绪！正在同步载入追缉战场...")
+	if NetworkManager.game_mode == NetworkManager.GameMode.SWORD_PVP:
+		SceneLoader.change_scene(get_tree(), PVP_MULTIPLAYER_SCENE, "双方就绪！正在同步载入刀剑决斗场...")
+	else:
+		SceneLoader.change_scene(get_tree(), CHASE_MULTIPLAYER_SCENE, "双方就绪！正在同步载入追缉战场...")
 
 
 func _on_disconnect_pressed() -> void:
@@ -738,17 +822,37 @@ func _on_server_created() -> void:
 
 func _on_connected_to_server() -> void:
 	_is_in_chamber = true
+	_sync_wait = 0.0
+	_join_direct_btn.disabled = false
+	_set_join_status("✅ 已连接房主", Color(0.35, 1.0, 0.5))
 	_update_all_views()
 
 
 func _on_connection_failed() -> void:
 	_is_in_chamber = false
+	_join_direct_btn.disabled = false
+	_set_join_status("❌ 连接失败或超时。请确认：房主已点击「创建房间」· IP/端口正确 · 双方防火墙放行 UDP 7777 · 两台机器运行同一版本代码",
+		Color(1.0, 0.4, 0.35))
 	_update_all_views()
 
 
 func _on_server_disconnected() -> void:
 	_is_in_chamber = false
+	_join_direct_btn.disabled = false
+	_set_join_status("⚠ 与房主的连接已断开", Color(1.0, 0.65, 0.3))
 	_update_all_views()
+
+
+## Connected but no profile RPC arriving means the two builds disagree on RPC ids.
+func _process(delta: float) -> void:
+	if not _is_in_chamber or NetworkManager.is_host or _chamber_sub_lbl == null:
+		return
+	if NetworkManager.remote_profile_synced:
+		return
+	_sync_wait += delta
+	if _sync_wait > 5.0:
+		_chamber_sub_lbl.text = "⚠ 已连上房主但房间信息同步失败 —— 两台机器的代码版本很可能不一致，请同步后重试"
+		_chamber_sub_lbl.modulate = Color(1.0, 0.6, 0.25)
 
 
 func _create_9patch_style(texture_path: String, ml: float, mt: float, mr: float, mb: float, cl: float = 16.0, ct: float = 14.0, cr: float = 16.0, cb: float = 14.0) -> StyleBoxTexture:

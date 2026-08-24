@@ -34,7 +34,6 @@ func setup_from_source(source: Node3D) -> void:
 
 	_mat_instances.clear()
 	_clone_meshes(source, self)
-	_spawn_cyber_burst_particles()
 	_start_dissolve_sequence()
 
 
@@ -62,39 +61,8 @@ func _clone_meshes(src_node: Node, target_parent: Node3D) -> void:
 				_mat_instances.append(mat)
 				target_parent.add_child(clone_mi)
 		elif child is Skeleton3D:
-			# Traverse child bones if present
 			_clone_meshes(child, target_parent)
 
-
-func _spawn_cyber_burst_particles() -> void:
-	var parts := CPUParticles3D.new()
-	parts.amount = 18
-	parts.lifetime = 0.35
-	parts.one_shot = true
-	parts.explosiveness = 0.9
-	parts.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-	parts.emission_box_extents = Vector3(0.3, 0.8, 0.3)
-	parts.position.y = 0.8
-	parts.direction = Vector3(0, 1, 0)
-	parts.spread = 180.0
-	parts.gravity = Vector3.ZERO
-	parts.initial_velocity_min = 1.0
-	parts.initial_velocity_max = 2.5
-	parts.scale_amount_min = 0.03
-	parts.scale_amount_max = 0.07
-
-	var p_mesh := QuadMesh.new()
-	p_mesh.size = Vector2(0.06, 0.06)
-	var p_mat := StandardMaterial3D.new()
-	p_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	p_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	p_mat.albedo_color = neon_color * 1.5
-	p_mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	parts.mesh = p_mesh
-	parts.material_override = p_mat
-
-	add_child(parts)
-	parts.emitting = true
 
 
 func _start_dissolve_sequence() -> void:

@@ -15,6 +15,10 @@ const OWN_LIB := "own"
 ## Standing body height in meters. Set by pipeline.
 @export var body_height := 0.0
 
+## Model-specific head/neck pitch correction in degrees.
+@export var head_pitch_offset: float = 0.0
+@export var neck_pitch_offset: float = 0.0
+
 @export var shared_animations: AnimationLibrary
 @export var own_animations: AnimationLibrary
 
@@ -40,6 +44,22 @@ func _ready() -> void:
 		return
 	attach_libraries()
 	_setup_sockets()
+
+
+func _process(_delta: float) -> void:
+	if skeleton == null:
+		return
+	if head_pitch_offset != 0.0:
+		var h_idx := skeleton.find_bone("Head")
+		if h_idx >= 0:
+			var q := skeleton.get_bone_pose_rotation(h_idx)
+			skeleton.set_bone_pose_rotation(h_idx, q * Quaternion.from_euler(Vector3(deg_to_rad(head_pitch_offset), 0.0, 0.0)))
+	if neck_pitch_offset != 0.0:
+		var n_idx := skeleton.find_bone("Neck")
+		if n_idx >= 0:
+			var q := skeleton.get_bone_pose_rotation(n_idx)
+			skeleton.set_bone_pose_rotation(n_idx, q * Quaternion.from_euler(Vector3(deg_to_rad(neck_pitch_offset), 0.0, 0.0)))
+
 
 
 ## Enforces double-sided toon shading without dark tint on all mesh surfaces.

@@ -121,6 +121,18 @@ static func _init_footstep_samples() -> void:
 		_land_stream = create_footstep_sample(0.85, true)
 
 
+static func get_random_footstep_stream() -> AudioStream:
+	_init_footstep_samples()
+	if _footstep_streams.is_empty():
+		return null
+	return _footstep_streams[randi() % _footstep_streams.size()]
+
+
+static func get_land_stream() -> AudioStream:
+	_init_footstep_samples()
+	return _land_stream
+
+
 static func play_footstep(volume_db: float = -12.0, pitch_scale: float = 1.0) -> void:
 	_init_footstep_samples()
 	if _footstep_streams.is_empty():
@@ -133,6 +145,25 @@ static func play_land_sound(volume_db: float = -6.0) -> void:
 	_init_footstep_samples()
 	if _land_stream != null:
 		play_sound(_land_stream, volume_db, 0.9)
+
+
+static var _hit_streams: Array[AudioStream] = []
+
+static func play_hit_sound(volume_db: float = 0.0) -> void:
+	if _hit_streams.is_empty():
+		var paths := [
+			"res://assets/voice/RPGsounds_Kenney/OGG/chop.ogg",
+			"res://assets/voice/RPGsounds_Kenney/OGG/knifeSlice.ogg",
+			"res://assets/voice/RPGsounds_Kenney/OGG/knifeSlice2.ogg",
+		]
+		for p in paths:
+			if ResourceLoader.exists(p):
+				var s := load(p) as AudioStream
+				if s != null:
+					_hit_streams.append(s)
+	if not _hit_streams.is_empty():
+		var s := _hit_streams[randi() % _hit_streams.size()]
+		play_sound(s, volume_db, randf_range(0.92, 1.08))
 
 
 static func play_sound(stream: AudioStream, volume_db: float = 0.0, pitch_scale: float = 1.0) -> void:

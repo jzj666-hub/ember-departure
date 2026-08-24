@@ -8,6 +8,23 @@ const DIR := "res://assets/combat_tools/configs"
 const MESH_DIR := "res://assets/combat_tools"
 const DEFAULT_ID := "_default"
 const EXT := ".json"
+const CLIP_CONFIG_PATH := "res://assets/combat_tools/clip_actions.json"
+
+## Default damage properties per animation clip.
+const DEFAULT_CLIP_ACTIONS := {
+	"sword_attack": {"single_hit": false, "hit_window": [0.0, 0.0]},
+	"sword_dash": {"single_hit": true, "hit_window": [0.15, 0.65]},
+	"sword_regular_a": {"single_hit": true, "hit_window": [0.1, 0.5]},
+	"sword_regular_b": {"single_hit": true, "hit_window": [0.1, 0.5]},
+	"sword_regular_c": {"single_hit": true, "hit_window": [0.15, 0.6]},
+	"sword_regular_combo": {"single_hit": false, "hit_window": [0.0, 0.0]},
+	"sword_heavy_combo": {"single_hit": false, "hit_window": [0.0, 0.0]},
+	"standing_melee_attack_horizontal": {"single_hit": true, "hit_window": [0.12, 0.55]},
+	"punch_cross": {"single_hit": true, "hit_window": [0.1, 0.4]},
+	"punch_jab": {"single_hit": true, "hit_window": [0.08, 0.35]},
+}
+
+static var _cached_clip_actions: Dictionary = {}
 
 ## Bumped when a field changes meaning rather than when one is added - a missing
 ## field is filled by normalise() and needs no version at all.
@@ -16,7 +33,7 @@ const VERSION := 1
 ## Maximum action nodes per weapon graph (matches PlayerController transition count).
 const MAX_ACTIONS := 8
 
-## Accepted flatten mode strings, mirroring PlayerController.Flatten.
+## Accepted flatten mode strings, mirroring CharacterAnimRig.Flatten.
 const FLATTEN_MODES := ["KEEP", "GROUND", "SETTLE", "ALL"]
 
 ## Default weapon model alignment roll in degrees (-90.0 about Z).
@@ -76,6 +93,8 @@ static func defaults() -> Dictionary:
 				"dash_distance": 0.0,
 				"trail": true,
 				"trail_window": [0.0, 0.0],
+				"single_hit": false,
+				"hit_window": [0.0, 0.0],
 				"links": [],
 			},
 		],
@@ -117,6 +136,67 @@ static func mesh_scene_for(weapon_id: String) -> PackedScene:
 		if ResourceLoader.exists(path):
 			return load(path) as PackedScene
 	return null
+
+
+# --- clip action registry --------------------------------------------------
+
+## Returns merged clip action definitions dictionary.
+static func get_all_clip_actions() -> Dictionary:
+	if not _cached_clip_actions.is_empty():
+		return _cached_clip_actions
+	var loaded := _read_raw(CLIP_CONFIG_PATH)
+	var merged := DEFAULT_CLIP_ACTIONS.duplicate(true)
+	for k in loaded:
+		if typeof(loaded[k]) == TYPE_DICTIONARY:
+			merged[k] = loaded[k]
+	_cached_clip_actions = merged
+	return _cached_clip_actions
+
+
+## Saves global clip action definitions to JSON file.
+static func save_clip_actions(config: Dictionary) -> String:
+	_cached_clip_actions = config.duplicate(true)
+	if DirAccess.make_dir_recursive_absolute(DIR) != OK and not DirAccess.dir_exists_absolute(DIR):
+		return "无法创建目录"
+	var file := FileAccess.open(CLIP_CONFIG_PATH, FileAccess.WRITE)
+	if file == null:
+		return "无法写入 %s" % CLIP_CONFIG_PATH
+	file.store_string(JSON.stringify(config, "\t") + "\n")
+	file.close()
+	return ""
+
+
+## Returns damage configuration dictionary for a given clip name.
+static func get_clip_defaults(clip_name: String) -> Dictionary:
+	var all := get_all_clip_actions()
+	var base_name := clip_name.get_file().get_basename()
+	if all.has(base_name):
+		return all[base_name]
+	if all.has(clip_name):
+		return all[clip_name]
+	return {"single_hit": false, "hit_window": [0.0, 0.0]}
+
+
+## Returns true if clip defaults to single hit.
+static func is_clip_single_hit(clip_name: String) -> bool:
+	return bool(get_clip_defaults(clip_name).get("single_hit", false))
+
+
+## Returns [start, end] damage time window for clip.
+static func get_clip_hit_window(clip_name: String) -> Array:
+	var win = get_clip_defaults(clip_name).get("hit_window", [0.0, 0.0])
+	return _window(win)
+
+
+## Sets damage properties for a clip and persists to JSON.
+static func set_clip_action_property(clip_name: String, single_hit: bool, hit_window: Array = [0.0, 0.0]) -> void:
+	var all := get_all_clip_actions().duplicate(true)
+	var base_name := clip_name.get_file().get_basename()
+	all[base_name] = {
+		"single_hit": single_hit,
+		"hit_window": _window(hit_window),
+	}
+	save_clip_actions(all)
 
 
 # --- reading ---------------------------------------------------------------
@@ -366,10 +446,9 @@ static func _normalise_action(raw: Dictionary, seen: Dictionary) -> Dictionary:
 		"dash_distance": clampf(float(raw.get("dash_distance",
 			_legacy_distance(raw))), 0.0, 12.0),
 		"trail": bool(raw.get("trail", true)),
-		# Seconds into the take the blade afterimage is allowed to draw. [0, 0] -
-		# the default - is the whole take, leaving trail.min_speed to decide which
-		# part of it actually reads as a swing.
 		"trail_window": _window(raw.get("trail_window")),
+		"single_hit": bool(raw.get("single_hit", is_clip_single_hit(clip))),
+		"hit_window": _window(raw.get("hit_window", get_clip_hit_window(clip))),
 		"links": links,
 	}
 

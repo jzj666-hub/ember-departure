@@ -5,6 +5,9 @@ const PlayerControllerScript = preload("res://scripts/player_controller.gd")
 const PlayerIntentSourceScript = preload("res://scripts/player_intent_source.gd")
 const FollowCameraScript = preload("res://scripts/follow_camera.gd")
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
+const ENV_PRESET = preload("res://config/env/playground.tres")
+const GROUND_PRESET = preload("res://config/ground/playground.tres")
 
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
@@ -87,108 +90,16 @@ func _ready() -> void:
 # --- world ----------------------------------------------------------------
 
 func _build_environment() -> void:
-	var sky_material := ProceduralSkyMaterial.new()
-	sky_material.sky_top_color = Color(0.24, 0.32, 0.47)
-	sky_material.sky_horizon_color = Color(0.58, 0.60, 0.63)
-	sky_material.ground_bottom_color = Color(0.12, 0.12, 0.14)
-	sky_material.ground_horizon_color = Color(0.58, 0.60, 0.63)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_material
-
-	var environment := Environment.new()
-	environment.background_mode = Environment.BG_SKY
-	environment.sky = sky
-	environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	environment.ambient_light_energy = 0.65
-	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	environment.ssao_enabled = true
-	# Without this the trail's `energy` above 1 is indistinguishable from 1: the
-	# HDR headroom is where the whole bright-core look lives.
-	environment.glow_enabled = true
-	environment.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
-	environment.glow_intensity = 0.9
-	environment.glow_bloom = 0.15
-	environment.glow_hdr_threshold = 1.0
-	# Distance haze: the far pillars fading is another cue that the near ones are
-	# rushing past.
-	environment.fog_enabled = true
-	environment.fog_light_color = Color(0.55, 0.59, 0.66)
-	environment.fog_density = 0.006
-
-	var node := WorldEnvironment.new()
-	node.name = "WorldEnvironment"
-	node.environment = environment
-	add_child(node)
-
-	add_child(_make_light("KeyLight", -48.0, -35.0, 1.3, true))
-	add_child(_make_light("FillLight", -18.0, 145.0, 0.5, false))
+	WorldBuilderScript.build_environment(self, ENV_PRESET)
 
 
-func _make_light(light_name: String, pitch_deg: float, yaw_deg: float,
-		energy: float, shadows: bool) -> DirectionalLight3D:
-	var light := DirectionalLight3D.new()
-	light.name = light_name
-	light.light_energy = energy
-	light.shadow_enabled = shadows
-	light.transform.basis = Basis.from_euler(
-		Vector3(deg_to_rad(pitch_deg), deg_to_rad(yaw_deg), 0.0))
-	light.position = Vector3(0.0, 6.0, 0.0)
-	return light
 
 
 ## Ground plane with collision and 1m grid shader.
 func _build_ground() -> void:
-	var body := StaticBody3D.new()
-	body.name = "Ground"
-
-	var mesh := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(GROUND_HALF * 2.0, GROUND_HALF * 2.0)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = Color(0.19, 0.20, 0.22)
-	material.roughness = 0.95
-	plane.material = material
-	mesh.mesh = plane
-	body.add_child(mesh)
-
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(GROUND_HALF * 2.0, 0.4, GROUND_HALF * 2.0)
-	shape.shape = box
-	shape.position = Vector3(0.0, -0.2, 0.0)
-	body.add_child(shape)
-	add_child(body)
-
-	add_child(_make_grid())
+	WorldBuilderScript.build_ground(self, GROUND_PRESET, GROUND_HALF)
 
 
-func _make_grid() -> MeshInstance3D:
-	var mesh := ImmediateMesh.new()
-	var half := int(GROUND_HALF)
-	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	for i in range(-half, half + 1):
-		var major := i % 10 == 0
-		var colour := Color(0.42, 0.47, 0.56, 0.55) if major else Color(0.30, 0.32, 0.36, 0.25)
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(i, 0.0, -half))
-		mesh.surface_add_vertex(Vector3(i, 0.0, half))
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(-half, 0.0, i))
-		mesh.surface_add_vertex(Vector3(half, 0.0, i))
-	mesh.surface_end()
-
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.vertex_color_use_as_albedo = true
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-
-	var node := MeshInstance3D.new()
-	node.name = "Grid"
-	node.mesh = mesh
-	node.material_override = material
-	node.position.y = 0.003  # clear of the ground plane, or they z-fight
-	return node
 
 
 ## Generates static test environment props layout.

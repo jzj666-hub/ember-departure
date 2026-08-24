@@ -55,6 +55,11 @@ const DEV_ENTRIES := [
 		"blurb": "连续自然起伏地形庄园，包含完整欧风建筑群、植被林地、双向无缝传送门与室内商舍（支持金币与灰烬凭证兑换）。",
 		"scene": "res://scenes/manor_estate.tscn",
 	},
+	{
+		"title": "人机刀剑PVP测试 / NPC Sword PVP Sandbox",
+		"blurb": "方块地图 1v1 刀剑实时格斗测试：双方血量、武器基础攻击力、双方攻击力加成、防御力全参数实时可调，支持翻滚受击减伤50%与免控机制。",
+		"scene": "res://scenes/pvp_sword_sandbox.tscn",
+	},
 ]
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
@@ -64,6 +69,7 @@ static var open_dev_menu_on_enter: bool = false
 
 var _custom_font: Font = null
 var _mode_select_box: VBoxContainer
+var _dev_scroll: ScrollContainer
 var _dev_box: VBoxContainer
 var _video_player: VideoStreamPlayer
 
@@ -84,7 +90,7 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
-			if _dev_box != null and _dev_box.visible:
+			if _dev_scroll != null and _dev_scroll.visible:
 				_show_mode_select()
 				get_viewport().set_input_as_handled()
 
@@ -177,11 +183,18 @@ func _build_ui() -> void:
 	_mode_select_box.add_child(quit_btn)
 
 	# --- Developer Scenes Panel ---
+	_dev_scroll = ScrollContainer.new()
+	_dev_scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_dev_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_dev_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_dev_scroll.visible = false
+	add_child(_dev_scroll)
+
 	_dev_box = VBoxContainer.new()
 	_dev_box.add_theme_constant_override("separation", 10)
 	_dev_box.custom_minimum_size = Vector2(520, 0)
-	_dev_box.visible = false
-	centre.add_child(_dev_box)
+	_dev_box.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_dev_scroll.add_child(_dev_box)
 
 	var dev_title := Label.new()
 	dev_title.text = "🛠️ 开发者沙盒调试工具箱"
@@ -270,9 +283,6 @@ func _make_big_mode_button(title: String, desc: String, icon_path: String, borde
 
 
 func _make_dev_entry(entry: Dictionary) -> Control:
-	var panel := VBoxContainer.new()
-	panel.add_theme_constant_override("separation", 2)
-
 	var button := Button.new()
 	button.text = entry.title
 	if _custom_font != null:
@@ -284,28 +294,19 @@ func _make_dev_entry(entry: Dictionary) -> Control:
 		button.text += "   (缺少 %s)" % String(entry.scene).get_file()
 	else:
 		button.pressed.connect(func() -> void: _open(entry.scene))
-	panel.add_child(button)
-
-	var blurb := Label.new()
-	blurb.text = entry.blurb
-	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	if _custom_font != null:
-		blurb.add_theme_font_override("font", _custom_font)
-	blurb.add_theme_font_size_override("font_size", 12)
-	blurb.modulate = Color(1, 1, 1, 0.55)
-	panel.add_child(blurb)
-	return panel
+	return button
 
 
 func _show_dev_menu() -> void:
 	open_dev_menu_on_enter = true
 	_mode_select_box.visible = false
-	_dev_box.visible = true
+	_dev_scroll.visible = true
+	_dev_scroll.scroll_vertical = 0
 
 
 func _show_mode_select() -> void:
 	open_dev_menu_on_enter = false
-	_dev_box.visible = false
+	_dev_scroll.visible = false
 	_mode_select_box.visible = true
 
 

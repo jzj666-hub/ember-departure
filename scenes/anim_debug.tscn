@@ -25,7 +25,7 @@ roughness = 0.95
 
 [sub_resource type="PlaneMesh" id="PlaneMesh_6x0vg"]
 material = SubResource("StandardMaterial3D_uprd2")
-size = Vector2(24, 24)
+size = Vector2(80, 80)
 
 [node name="AnimDebug" type="Node3D" unique_id=181477170 node_paths=PackedStringArray("characters_root")]
 script = ExtResource("1_g4bug")
@@ -44,7 +44,6 @@ transform = Transform3D(-0.76604444, -0.21984631, 0.6040228, 0, 0.9396926, 0.342
 light_energy = 0.5
 
 [node name="Ground" type="MeshInstance3D" parent="." unique_id=2092820189]
-transform = Transform3D(1, 0, 0, 0, 0.9998778, -0.015631191, 0, 0.015631191, 0.9998778, 5.00679e-05, -0.083037555, -2.0212126)
 mesh = SubResource("PlaneMesh_6x0vg")
 
 [node name="CameraRig" type="Node3D" parent="." unique_id=1313292959]

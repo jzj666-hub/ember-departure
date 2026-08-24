@@ -240,6 +240,8 @@ func _action_block(index: int) -> VBoxContainer:
 
 	head.add_child(_clip_picker(action.clip, func(clip: String) -> void:
 		_config.actions[index].clip = clip
+		_config.actions[index].single_hit = WeaponConfig.is_clip_single_hit(clip)
+		_config.actions[index].hit_window = WeaponConfig.get_clip_hit_window(clip)
 		_commit()))
 	head.add_child(_button("×", func() -> void:
 		_config.actions.remove_at(index)
@@ -287,9 +289,6 @@ func _action_block(index: int) -> VBoxContainer:
 	trail.add_child(_check("残影", action.trail, func(on: bool) -> void:
 		_config.actions[index].trail = on
 		_commit()))
-	# Seconds into the take, same units as a link window. Both zero is the whole
-	# take, which is what the suffix says - the blade's own speed gate picks the
-	# swing out of it, so most nodes never need a narrower one.
 	var whole: bool = action.trail_window[0] <= 0.0 and action.trail_window[1] <= 0.0
 	for edge in 2:
 		var bound := _number(action.trail_window[edge], 0.0, 10.0, 0.05,
@@ -300,6 +299,31 @@ func _action_block(index: int) -> VBoxContainer:
 		if edge == 1:
 			trail.add_child(_label("~", FONT_SIZE, Color.WHITE))
 		trail.add_child(bound)
+
+	var hit_row := HBoxContainer.new()
+	hit_row.add_theme_constant_override("separation", 4)
+	block.add_child(hit_row)
+	var current_clip: String = String(action.get("clip", ""))
+	var is_single: bool = bool(action.get("single_hit", WeaponConfig.is_clip_single_hit(current_clip)))
+	hit_row.add_child(_check("动作单次伤害", is_single, func(on: bool) -> void:
+		_config.actions[index].single_hit = on
+		WeaponConfig.set_clip_action_property(current_clip, on, _config.actions[index].get("hit_window", [0.0, 0.0]))
+		_commit()))
+	hit_row.add_child(_label("伤窗", FONT_SIZE, Color(0.75, 0.8, 0.9)))
+	var hit_win = action.get("hit_window", WeaponConfig.get_clip_hit_window(current_clip))
+	var hit_whole: bool = float(hit_win[0]) <= 0.0 and float(hit_win[1]) <= 0.0
+	for edge in 2:
+		var bound := _number(float(hit_win[edge]), 0.0, 10.0, 0.05,
+			func(v: float) -> void:
+				if not _config.actions[index].has("hit_window"):
+					_config.actions[index].hit_window = [0.0, 0.0]
+				_config.actions[index].hit_window[edge] = v
+				WeaponConfig.set_clip_action_property(current_clip, _config.actions[index].get("single_hit", is_single), _config.actions[index].hit_window)
+				_commit())
+		bound.suffix = "全程" if hit_whole else "s"
+		if edge == 1:
+			hit_row.add_child(_label("~", FONT_SIZE, Color.WHITE))
+		hit_row.add_child(bound)
 
 	for i in action.links.size():
 		block.add_child(_link_row(index, i))

@@ -1,0 +1,12 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://qmym1ptfualb"]
+
+[ext_resource type="Texture2D" uid="uid://d33ivbjieuhfv" path="res://assets/characters/cunning_merchant/merchant.fbm/Mat_16____Pbr_Diffuse.png" id="1_y578l"]
+
+[resource]
+resource_name = "Mat_16____Pbr"
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+albedo_texture = ExtResource("1_y578l")
+emission_enabled = true
+emission_energy_multiplier = 0.0

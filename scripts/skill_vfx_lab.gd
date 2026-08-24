@@ -138,6 +138,46 @@ var _skill_panel_box: VBoxContainer
 var _skill_title_lbl: Label
 var _cast_btn: Button
 
+# Sky Environment & Panorama List
+var _world_env: WorldEnvironment
+var _current_sky_idx: int = 0
+const SKY_PRESETS: Array[Dictionary] = [
+	{
+		"name": "🌌 幽蓝余烬夜空 (Pure Dark Celestial)",
+		"path": "res://assets/sky_image/Pure_Dark_Celestial_Sky.jpg",
+		"sun_energy": 0.85,
+		"sun_color": Color(0.85, 0.92, 1.0),
+		"ambient_energy": 0.45,
+		"ground_color": Color(0.12, 0.14, 0.18)
+	},
+	{
+		"name": "🌅 凄美残阳暮色 (Pure Twilight Sky Dome)",
+		"path": "res://assets/sky_image/Pure_Twilight_Sky_Dome.jpg",
+		"sun_energy": 1.3,
+		"sun_color": Color(1.0, 0.75, 0.55),
+		"ambient_energy": 0.6,
+		"ground_color": Color(0.16, 0.13, 0.12)
+	},
+	{
+		"name": "☁️ 苍穹阴云雷暴 (Pure Overcast Tempest)",
+		"path": "res://assets/sky_image/Pure_Overcast_Tempest_Sky.jpg",
+		"sun_energy": 1.0,
+		"sun_color": Color(0.92, 0.95, 1.0),
+		"ambient_energy": 0.55,
+		"ground_color": Color(0.14, 0.15, 0.17)
+	},
+	{
+		"name": "🎨 默认程序化天空 (Procedural Sky)",
+		"path": "",
+		"sun_energy": 1.1,
+		"sun_color": Color(1.0, 0.95, 0.85),
+		"ambient_energy": 0.5,
+		"ground_color": Color(0.14, 0.16, 0.20)
+	}
+]
+var _sun_light: DirectionalLight3D
+var _ground_mat: StandardMaterial3D
+
 func _ready() -> void:
 	AudioManagerScript.init_pool(self)
 	SkillRegistryScript.init_registry()
@@ -208,6 +248,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			if vp != null:
 				vp.set_input_as_handled()
 			_toggle_immersive_mode()
+			return
+		elif event.keycode == KEY_F3: # Toggle First Person Perspective
+			var vp := get_viewport()
+			if vp != null:
+				vp.set_input_as_handled()
+			if _camera != null:
+				_camera.toggle_first_person()
+			return
+		elif event.keycode == KEY_F4: # Switch Sky Panorama Texture
+			var vp := get_viewport()
+			if vp != null:
+				vp.set_input_as_handled()
+			_cycle_sky_panorama()
 			return
 		elif event.keycode == KEY_Q:
 			var vp := get_viewport()
@@ -353,15 +406,15 @@ func _update_header_text() -> void:
 		return
 
 	if _is_immersive:
-		_sub_header_lbl.text = "🌟 [沉浸式模式] [L]开关侧栏 | [F2]切假人/玩家 | [Q]释放技能 | [1-9]切技能 | [TAB]全局观战"
+		_sub_header_lbl.text = "🌟 [沉浸式模式] [L]开关侧栏 | [F2]切假人/玩家 | [F3]第一人称 | [F4]切天空 | [Q]释放技能 | [1-9]切技能 | [TAB]全局观战"
 		_sub_header_lbl.modulate = Color(1.0, 0.9, 0.4)
 	else:
 		if _mode == LabMode.PLAYER_CONTROL:
 			var target_str := "【玩家】" if _control_target == ControlTarget.PLAYER else "【假人】"
-			_sub_header_lbl.text = "WASD移动 | [Q]释放技能(%s) | [F2]切换假人/玩家 | [1-9]切技能 | [L]沉浸式 | [TAB]观战" % target_str
+			_sub_header_lbl.text = "WASD移动 | [Q]释放技能(%s) | [F2]切换假人/玩家 | [F3]第一人称 | [F4]切天空 | [1-9]切技能 | [L]沉浸式 | [TAB]观战" % target_str
 			_sub_header_lbl.modulate = Color(0.7, 0.8, 0.9)
 		else:
-			_sub_header_lbl.text = "WASD自由飞行漫游 | 滚轮调速 | [Q]重触发 | [F2]切换目标 | [L]沉浸式 | [TAB]返回控制"
+			_sub_header_lbl.text = "WASD自由飞行漫游 | 滚轮调速 | [Q]重触发 | [F2]切换目标 | [F4]切天空 | [L]沉浸式 | [TAB]返回控制"
 			_sub_header_lbl.modulate = Color(0.7, 0.8, 0.9)
 
 	if _mode_badge_lbl != null:
@@ -721,18 +774,8 @@ func _on_skill_param_changed(key: String, val: Variant) -> void:
 	_last_cast_record[key] = val
 
 func _build_scene_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.20, 0.28, 0.42)
-	sky_mat.sky_horizon_color = Color(0.55, 0.58, 0.64)
-	sky_mat.ground_bottom_color = Color(0.10, 0.12, 0.15)
-	sky_mat.ground_horizon_color = Color(0.55, 0.58, 0.64)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-
 	var env := Environment.new()
 	env.background_mode = Environment.BG_SKY
-	env.sky = sky
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	env.ambient_light_energy = 0.5
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
@@ -740,16 +783,19 @@ func _build_scene_environment() -> void:
 	env.glow_intensity = 0.8
 	env.glow_bloom = 0.2
 
-	var env_node := WorldEnvironment.new()
-	env_node.environment = env
-	add_child(env_node)
+	_world_env = WorldEnvironment.new()
+	_world_env.name = "WorldEnvironment"
+	_world_env.environment = env
+	add_child(_world_env)
 
-	var sun := DirectionalLight3D.new()
-	sun.light_color = Color(1.0, 0.95, 0.85)
-	sun.light_energy = 1.1
-	sun.shadow_enabled = true
-	sun.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(135.0), 0.0))
-	add_child(sun)
+	_sun_light = DirectionalLight3D.new()
+	_sun_light.name = "SunLight"
+	_sun_light.shadow_enabled = true
+	_sun_light.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-45.0), deg_to_rad(135.0), 0.0))
+	add_child(_sun_light)
+
+	# Apply initial sky preset (Pure Dark Celestial Sky)
+	_apply_sky_preset(_current_sky_idx)
 
 	# Ground
 	var ground := StaticBody3D.new()
@@ -763,17 +809,17 @@ func _build_scene_environment() -> void:
 
 	var g_mesh := BoxMesh.new()
 	g_mesh.size = Vector3(80.0, 0.4, 80.0)
-	var g_mat := StandardMaterial3D.new()
-	g_mat.albedo_color = Color(0.14, 0.16, 0.20)
-	g_mat.roughness = 0.8
+	_ground_mat = StandardMaterial3D.new()
+	_ground_mat.albedo_color = Color(0.12, 0.14, 0.18)
+	_ground_mat.roughness = 0.8
 	var g_inst := MeshInstance3D.new()
 	g_inst.mesh = g_mesh
-	g_inst.material_override = g_mat
+	g_inst.material_override = _ground_mat
 	g_inst.position.y = -0.2
 	ground.add_child(g_inst)
 	add_child(ground)
 
-	# Grid Lines
+	# Grid Lines (Created on startup)
 	var imm := ImmediateMesh.new()
 	imm.surface_begin(Mesh.PRIMITIVE_LINES)
 	for i in range(-40, 41):
@@ -800,6 +846,50 @@ func _build_scene_environment() -> void:
 	_vfx_root = Node3D.new()
 	_vfx_root.name = "VFXRoot"
 	add_child(_vfx_root)
+
+
+func _apply_sky_preset(idx: int) -> void:
+	if _world_env == null or _world_env.environment == null:
+		return
+	if idx < 0 or idx >= SKY_PRESETS.size():
+		idx = 0
+	_current_sky_idx = idx
+	var preset: Dictionary = SKY_PRESETS[idx]
+
+	var sky_path: String = preset.get("path", "")
+	var sky := Sky.new()
+
+	if not sky_path.is_empty() and ResourceLoader.exists(sky_path):
+		var pano_mat := PanoramaSkyMaterial.new()
+		pano_mat.panorama = load(sky_path) as Texture2D
+		sky.sky_material = pano_mat
+	else:
+		var proc_mat := ProceduralSkyMaterial.new()
+		proc_mat.sky_top_color = Color(0.20, 0.28, 0.42)
+		proc_mat.sky_horizon_color = Color(0.55, 0.58, 0.64)
+		proc_mat.ground_bottom_color = Color(0.10, 0.12, 0.15)
+		proc_mat.ground_horizon_color = Color(0.55, 0.58, 0.64)
+		sky.sky_material = proc_mat
+
+	_world_env.environment.sky = sky
+	_world_env.environment.ambient_light_energy = float(preset.get("ambient_energy", 0.5))
+
+	if _sun_light != null:
+		_sun_light.light_energy = float(preset.get("sun_energy", 1.0))
+		_sun_light.light_color = preset.get("sun_color", Color.WHITE)
+
+	if _ground_mat != null:
+		_ground_mat.albedo_color = preset.get("ground_color", Color(0.14, 0.16, 0.20))
+
+
+func _cycle_sky_panorama() -> void:
+	var next_idx := (_current_sky_idx + 1) % SKY_PRESETS.size()
+	_apply_sky_preset(next_idx)
+	var preset: Dictionary = SKY_PRESETS[_current_sky_idx]
+	if _sub_header_lbl != null:
+		_sub_header_lbl.text = "🌌 天空已切换: %s [按 F4 切换下一个]" % preset.get("name", "")
+		_sub_header_lbl.modulate = Color(0.4, 0.95, 1.0)
+
 
 func _build_player() -> void:
 	_player = PlayerControllerScript.new()
@@ -1051,6 +1141,7 @@ func _build_left_sidebar(root: Control) -> void:
 				btn.add_theme_constant_override("icon_max_width", SKILL_ICON_SIZE)
 			btn.custom_minimum_size = Vector2(0, 36)
 			btn.toggle_mode = true
+			btn.focus_mode = Control.FOCUS_NONE
 			if _custom_font != null:
 				btn.add_theme_font_override("font", _custom_font)
 			btn.add_theme_font_size_override("font_size", 13)
@@ -1099,6 +1190,7 @@ func _build_right_sidebar(root: Control) -> void:
 	# --- 1. 假人/玩家操控切换按钮 ---
 	_switch_target_btn = Button.new()
 	_switch_target_btn.text = "🔄 当前操控: 【玩家】 (按 F2 切换假人)"
+	_switch_target_btn.focus_mode = Control.FOCUS_NONE
 	if _custom_font != null:
 		_switch_target_btn.add_theme_font_override("font", _custom_font)
 	_switch_target_btn.add_theme_font_size_override("font_size", 13)
@@ -1134,6 +1226,7 @@ func _build_right_sidebar(root: Control) -> void:
 	char_row.add_child(c_lbl)
 
 	_char_picker = OptionButton.new()
+	_char_picker.focus_mode = Control.FOCUS_NONE
 	_char_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var chars := CharacterPipelineScript.list_characters().filter(
 		func(c: Dictionary) -> bool: return ResourceLoader.exists(c.scene))
@@ -1163,12 +1256,14 @@ func _build_right_sidebar(root: Control) -> void:
 		var ts_btn := Button.new()
 		ts_btn.text = "%.1fx" % ts
 		ts_btn.custom_minimum_size = Vector2(70, 30)
+		ts_btn.focus_mode = Control.FOCUS_NONE
 		ts_btn.pressed.connect(func(): Engine.time_scale = ts)
 		slow_hbox.add_child(ts_btn)
 
 	# --- 5. 视角与释放控制 ---
 	var tab_btn := Button.new()
 	tab_btn.text = "🎥 切换全局视角 / 观战回放 [TAB]"
+	tab_btn.focus_mode = Control.FOCUS_NONE
 	if _custom_font != null:
 		tab_btn.add_theme_font_override("font", _custom_font)
 	tab_btn.add_theme_font_size_override("font_size", 14)
@@ -1181,6 +1276,7 @@ func _build_right_sidebar(root: Control) -> void:
 
 	_cast_btn = Button.new()
 	_cast_btn.text = "⚡ 立即释放选中技能 (CAST [Q])"
+	_cast_btn.focus_mode = Control.FOCUS_NONE
 	if _custom_font != null:
 		_cast_btn.add_theme_font_override("font", _custom_font)
 	_cast_btn.add_theme_font_size_override("font_size", 15)

@@ -7,6 +7,10 @@ const FollowCameraScript = preload("res://scripts/follow_camera.gd")
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const ManorTeleporterScript = preload("res://scripts/manor/manor_teleporter.gd")
 const ManorMerchantScript = preload("res://scripts/manor/manor_merchant.gd")
+const ManorNpcWanderScript = preload("res://scripts/manor/manor_npc_wander.gd")
+const ManorChairScript = preload("res://scripts/manor/manor_chair.gd")
+const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
+const ENV_PRESET = preload("res://config/env/manor.tres")
 
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 const FONT_CHINESE := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
@@ -35,6 +39,7 @@ var _visual: Node3D
 var _geometry_root: Node3D
 var _indoor_root: Node3D
 var _nav_region: NavigationRegion3D
+var _wandering_npcs: Array[PlayerController] = []
 
 # Teleporters
 var _outdoor_teleporter: Node3D
@@ -78,50 +83,21 @@ func _get_profile() -> Node:
 	return null
 
 
+func _physics_process(_delta: float) -> void:
+	if _player != null:
+		# Fail-safe recovery if player somehow falls out of bounds
+		if _player.global_position.x > 200.0 and _player.global_position.y < 35.0:
+			_player.global_position = INDOOR_SPAWN
+			_player.velocity = Vector3.ZERO
+		elif _player.global_position.y < -30.0:
+			_player.global_position = OUTDOOR_SPAWN
+			_player.velocity = Vector3.ZERO
+
+
 # --- Environment & Lighting --------------------------------------------------
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.25, 0.42, 0.65)
-	sky_mat.sky_horizon_color = Color(0.68, 0.75, 0.82)
-	sky_mat.ground_bottom_color = Color(0.16, 0.18, 0.20)
-	sky_mat.ground_horizon_color = Color(0.60, 0.65, 0.68)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.7
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	env.ssao_enabled = true
-	env.glow_enabled = true
-	env.glow_bloom = 0.12
-	env.fog_enabled = true
-	env.fog_light_color = Color(0.62, 0.68, 0.75)
-	env.fog_density = 0.002
-
-	var world_env := WorldEnvironment.new()
-	world_env.environment = env
-	add_child(world_env)
-
-	# Sun Key Light
-	var sun := DirectionalLight3D.new()
-	sun.name = "SunLight"
-	sun.light_energy = 1.45
-	sun.shadow_enabled = true
-	sun.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-42.0), deg_to_rad(-38.0), 0.0))
-	add_child(sun)
-
-	# Soft Fill Light
-	var fill := DirectionalLight3D.new()
-	fill.name = "FillLight"
-	fill.light_energy = 0.4
-	fill.shadow_enabled = false
-	fill.transform.basis = Basis.from_euler(Vector3(deg_to_rad(-20.0), deg_to_rad(140.0), 0.0))
-	add_child(fill)
+	WorldBuilderScript.build_environment(self, ENV_PRESET)
 
 
 # --- Continuous World & Buildings -------------------------------------------
@@ -144,6 +120,7 @@ func _build_navigation_and_world() -> void:
 	_build_estate_buildings(noise)
 	_build_vegetation_and_props(noise)
 	_build_automatic_grass_coverage(noise)
+	_build_wandering_npcs(noise)
 
 
 func _get_terrain_height(x: float, z: float, noise: FastNoiseLite) -> float:
@@ -532,9 +509,18 @@ func _build_vegetation_and_props(noise: FastNoiseLite) -> void:
 	var b1_y: float = _get_terrain_height(-4.5, -2.0, noise)
 	_spawn_model("res://assets/scene_objects/glTF/Bench.gltf",
 		Vector3(-4.5, b1_y, -2.0), Vector3(0.0, deg_to_rad(90.0), 0.0), Vector3(1.0, 1.0, 1.0), "Bench_1", true)
+	var chair_b1 := ManorChairScript.new()
+	chair_b1.position = Vector3(-4.5, b1_y, -2.0)
+	chair_b1.rotation.y = deg_to_rad(90.0)
+	_geometry_root.add_child(chair_b1)
+
 	var b2_y: float = _get_terrain_height(4.5, -2.0, noise)
 	_spawn_model("res://assets/scene_objects/glTF/Bench.gltf",
 		Vector3(4.5, b2_y, -2.0), Vector3(0.0, deg_to_rad(-90.0), 0.0), Vector3(1.0, 1.0, 1.0), "Bench_2", true)
+	var chair_b2 := ManorChairScript.new()
+	chair_b2.position = Vector3(4.5, b2_y, -2.0)
+	chair_b2.rotation.y = deg_to_rad(-90.0)
+	_geometry_root.add_child(chair_b2)
 
 	var t1_y: float = _get_terrain_height(-2.2, -11.0, noise)
 	_spawn_model("res://assets/scene_objects/glTF/Torch_Metal.gltf",
@@ -542,6 +528,63 @@ func _build_vegetation_and_props(noise: FastNoiseLite) -> void:
 	var t2_y: float = _get_terrain_height(2.2, -11.0, noise)
 	_spawn_model("res://assets/scene_objects/glTF/Torch_Metal.gltf",
 		Vector3(2.2, t2_y, -11.0), Vector3.ZERO, Vector3(1.2, 1.2, 1.2), "Torch_Right", false)
+
+
+## Spawns NPC characters in the courtyard and surrounding estate grounds with autonomous wandering.
+func _build_wandering_npcs(noise: FastNoiseLite) -> void:
+	var npc_chars := CharacterPipelineScript.list_characters().filter(
+		func(c: Dictionary) -> bool: return c.id.to_lower().contains("npc") and ResourceLoader.exists(c.scene))
+
+	if npc_chars.is_empty():
+		return
+
+	var spawn_anchors := [
+		Vector3(-6.0, 0.0, 7.0),   # Southwest garden path
+		Vector3(6.0, 0.0, 7.5),    # Southeast courtyard
+		Vector3(-4.5, 0.0, 0.5),   # West plaza near benches
+		Vector3(5.5, 0.0, -1.0),   # East terrace
+		Vector3(-1.5, 0.0, 16.0),  # South avenue entrance
+		Vector3(10.0, 0.0, 14.0),  # Southeast lawn
+		Vector3(-10.0, 0.0, 12.0), # Southwest lawn
+	]
+
+	for i in range(npc_chars.size()):
+		var char_info: Dictionary = npc_chars[i]
+		var scn := load(char_info.scene) as PackedScene
+		if scn == null:
+			continue
+
+		var anchor: Vector3 = spawn_anchors[i % spawn_anchors.size()]
+		var terrain_y := _get_terrain_height(anchor.x, anchor.z, noise) + 0.25
+		anchor.y = terrain_y
+
+		var npc := PlayerControllerScript.new()
+		npc.name = "NPC_%s" % char_info.id
+		npc.position = anchor
+
+		var wander_source := ManorNpcWanderScript.new(anchor, 6.0)
+		npc.intent_source = wander_source
+
+		_geometry_root.add_child(npc)
+
+		var visual := scn.instantiate() as Node3D
+		npc.add_child(visual)
+
+		var height: float = visual.get("body_height") if visual != null else 1.75
+		if height <= 0.1:
+			height = 1.75
+
+		var collider := CollisionShape3D.new()
+		var capsule := CapsuleShape3D.new()
+		capsule.radius = minf(0.3, height * 0.2)
+		capsule.height = height
+		collider.shape = capsule
+		collider.position.y = height * 0.5
+		npc.add_child(collider)
+
+		npc.setup(visual, null)
+
+		_wandering_npcs.append(npc)
 
 
 # --- Indoor Environment -----------------------------------------------------
@@ -562,10 +605,13 @@ func _build_indoor_manor() -> void:
 	_add_indoor_box(Vector3(0.0, room_h + 0.1, 0.0), Vector3(room_w, 0.2, room_d), Color(0.14, 0.10, 0.07), "IndoorCeiling")
 	# North Wall (Back)
 	_add_indoor_box(Vector3(0.0, room_h * 0.5, -room_d * 0.5), Vector3(room_w, room_h, 0.4), Color(0.24, 0.22, 0.20), "WallNorth")
-	# South Wall (Front with door opening)
-	_add_indoor_box(Vector3(-5.5, room_h * 0.5, room_d * 0.5), Vector3(7.0, room_h, 0.4), Color(0.24, 0.22, 0.20), "WallSouthL")
-	_add_indoor_box(Vector3(5.5, room_h * 0.5, room_d * 0.5), Vector3(7.0, room_h, 0.4), Color(0.24, 0.22, 0.20), "WallSouthR")
-	_add_indoor_box(Vector3(0.0, room_h * 0.5 + 1.6, room_d * 0.5), Vector3(4.0, 1.6, 0.4), Color(0.24, 0.22, 0.20), "WallSouthTop")
+	# South Wall (Solid with decorative entrance door frame - fully blocks void exit)
+	_add_indoor_box(Vector3(0.0, room_h * 0.5, room_d * 0.5), Vector3(room_w, room_h, 0.4), Color(0.24, 0.22, 0.20), "WallSouth")
+	# Decorative Indoor Door Frame & Panels
+	_add_indoor_box(Vector3(0.0, 1.8, room_d * 0.5 - 0.05), Vector3(3.2, 3.6, 0.15), Color(0.16, 0.11, 0.07), "DoorPanelWood")
+	_add_indoor_box(Vector3(-1.7, 1.8, room_d * 0.5 - 0.08), Vector3(0.3, 3.8, 0.2), Color(0.28, 0.18, 0.10), "DoorFrameL")
+	_add_indoor_box(Vector3(1.7, 1.8, room_d * 0.5 - 0.08), Vector3(0.3, 3.8, 0.2), Color(0.28, 0.18, 0.10), "DoorFrameR")
+	_add_indoor_box(Vector3(0.0, 3.7, room_d * 0.5 - 0.08), Vector3(3.7, 0.3, 0.2), Color(0.28, 0.18, 0.10), "DoorFrameTop")
 	# West Wall
 	_add_indoor_box(Vector3(-room_w * 0.5, room_h * 0.5, 0.0), Vector3(0.4, room_h, room_d), Color(0.24, 0.22, 0.20), "WallWest")
 	# East Wall
@@ -595,8 +641,17 @@ func _build_indoor_manor() -> void:
 		Vector3(-4.0, 0.0, -2.5), Vector3.ZERO, Vector3(1.1, 1.1, 1.1), "LoungeTable", true)
 	_spawn_indoor_prop("res://assets/scene_objects/glTF/Chair_1.gltf",
 		Vector3(-5.5, 0.0, -2.5), Vector3(0.0, deg_to_rad(90.0), 0.0), Vector3(1.0, 1.0, 1.0), "Chair_1", true)
+	var in_chair1 := ManorChairScript.new()
+	in_chair1.position = Vector3(-5.5, 0.0, -2.5)
+	in_chair1.rotation.y = deg_to_rad(90.0)
+	_indoor_root.add_child(in_chair1)
+
 	_spawn_indoor_prop("res://assets/scene_objects/glTF/Chair_1.gltf",
 		Vector3(-2.5, 0.0, -2.5), Vector3(0.0, deg_to_rad(-90.0), 0.0), Vector3(1.0, 1.0, 1.0), "Chair_2", true)
+	var in_chair2 := ManorChairScript.new()
+	in_chair2.position = Vector3(-2.5, 0.0, -2.5)
+	in_chair2.rotation.y = deg_to_rad(-90.0)
+	_indoor_root.add_child(in_chair2)
 	_spawn_indoor_prop("res://assets/scene_objects/glTF/Mug.gltf",
 		Vector3(-3.8, 0.82, -2.3), Vector3.ZERO, Vector3(1.0, 1.0, 1.0), "Mug", false)
 
@@ -768,6 +823,13 @@ func _build_player() -> void:
 
 	if _visual != null:
 		_player.setup(_visual, _camera)
+
+	var listener := AudioListener3D.new()
+	listener.name = "PlayerAudioListener"
+	listener.position = Vector3(0.0, height * 0.9, 0.0)
+	_player.add_child(listener)
+	listener.make_current()
+
 	_camera.target = _player
 	_camera.frame_for(height)
 	_camera.snap()
@@ -850,7 +912,7 @@ func _build_hud() -> void:
 	_hud_layer.add_child(hint_panel)
 
 	var hint_lbl := Label.new()
-	hint_lbl.text = "WASD 移动 · Shift 奔跑 · 空格 跳跃 · C 蹲伏/翻滚 · E 传送/与商贩交互 · TAB 释放光标 · ESC 返回菜单"
+	hint_lbl.text = "WASD 移动 · Shift 奔跑 · 空格 跳跃 · C 蹲伏/翻滚 · E 交互/就座/传送 · TAB 释放光标 · ESC 返回菜单"
 	hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hint_lbl.add_theme_font_size_override("font_size", 14)

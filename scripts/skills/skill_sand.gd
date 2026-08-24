@@ -4,6 +4,7 @@ extends "res://scripts/skills/skill_base.gd"
 ## toward the centre, and the pull grows stronger the closer they get.
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const QuicksandVortexShader = preload("res://shaders/quicksand_vortex.gdshader")
 
 ## Quicksand pool radius (m).
 var sand_radius: float = 4.0
@@ -236,11 +237,9 @@ class QuicksandZone extends Node3D:
 
 	var _elapsed: float = 0.0
 	var _dead: bool = false
-	var _disc: MeshInstance3D
-	var _disc_mat: StandardMaterial3D
+	var _vortex: MeshInstance3D
+	var _vortex_mat: ShaderMaterial
 	var _ring_outer: MeshInstance3D
-	var _ring_inner: MeshInstance3D
-	var _swirl: CPUParticles3D
 
 	func _ready() -> void:
 		_build_visuals()
@@ -250,7 +249,8 @@ class QuicksandZone extends Node3D:
 			return
 		_elapsed += delta
 		_drag_bodies(delta)
-		_spin(delta)
+		if _ring_outer != null and is_instance_valid(_ring_outer):
+			_ring_outer.rotation.y += delta * 1.2
 		if _elapsed >= lifetime:
 			_dead = true
 			_dissolve()
@@ -280,86 +280,60 @@ class QuicksandZone extends Node3D:
 			var falloff := 1.0 - clampf(dist / radius, 0.0, 1.0)
 			cb.global_position += to_center / dist * max_pull * falloff * delta
 
-	func _spin(delta: float) -> void:
-		if _ring_outer != null and is_instance_valid(_ring_outer):
-			_ring_outer.rotation.y += delta * 0.9
-		if _ring_inner != null and is_instance_valid(_ring_inner):
-			_ring_inner.rotation.y -= delta * 2.4
-
 	func _dissolve() -> void:
-		if _swirl != null and is_instance_valid(_swirl):
-			_swirl.emitting = false
 		var tw := create_tween()
 		tw.set_parallel(true)
-		tw.tween_property(self, "scale", Vector3(0.9, 0.9, 0.9), 0.32)
-		if _disc_mat != null and is_instance_valid(_disc_mat):
-			tw.tween_property(_disc_mat, "albedo_color:a", 0.0, 0.32)
+		tw.tween_property(self, "scale", Vector3(0.1, 1.0, 0.1), 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		if _vortex_mat != null and is_instance_valid(_vortex_mat):
+			tw.tween_method(func(v: float):
+				if is_instance_valid(_vortex_mat):
+					_vortex_mat.set_shader_parameter("fade", v)
+			, 1.0, 0.0, 0.35)
+		if _ring_outer != null and is_instance_valid(_ring_outer) and _ring_outer.material_override != null:
+			tw.tween_property(_ring_outer.material_override, "albedo_color:a", 0.0, 0.35)
 		tw.chain().tween_callback(queue_free)
 
 	func _build_visuals() -> void:
 		var r := maxf(radius, 0.5)
 
-		# Sand pool disc.
-		_disc = MeshInstance3D.new()
-		_disc.name = "SandPool"
-		var dm := CylinderMesh.new()
-		dm.top_radius = r
-		dm.bottom_radius = r
-		dm.height = 0.05
-		dm.radial_segments = 48
-		_disc.mesh = dm
-		_disc_mat = StandardMaterial3D.new()
-		_disc_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_disc_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_disc_mat.albedo_color = Color(0.36, 0.28, 0.16, 0.62)
-		_disc_mat.emission_enabled = true
-		_disc_mat.emission = Color(0.55, 0.42, 0.18)
-		_disc_mat.emission_energy_multiplier = 0.6
-		_disc.material_override = _disc_mat
-		add_child(_disc)
+		# 1. 纯 Shader 漩涡流沙盘 (Pure Procedural Quicksand Inward Vortex)
+		_vortex = MeshInstance3D.new()
+		_vortex.name = "SandVortex"
+		var qm := QuadMesh.new()
+		qm.size = Vector2(r * 2.0, r * 2.0)
+		_vortex.mesh = qm
+		_vortex.rotation.x = -PI * 0.5
+		_vortex.position.y = 0.04
 
-		# Outer rim ring.
-		_ring_outer = _make_ring(r * 0.97, r * 1.02, Color(0.72, 0.55, 0.22, 0.85), 0.05)
+		_vortex_mat = ShaderMaterial.new()
+		_vortex_mat.shader = QuicksandVortexShader
+		_vortex_mat.set_shader_parameter("sand_color_outer", Color(0.68, 0.52, 0.28, 0.9))
+		_vortex_mat.set_shader_parameter("sand_color_inner", Color(0.28, 0.18, 0.07, 0.95))
+		_vortex_mat.set_shader_parameter("crest_glow", Color(0.95, 0.78, 0.45, 1.0))
+		_vortex_mat.set_shader_parameter("swirl_speed", 3.2)
+		_vortex_mat.set_shader_parameter("spiral_arms", 5.0)
+		_vortex_mat.set_shader_parameter("fade", 1.0)
+		_vortex.material_override = _vortex_mat
+		add_child(_vortex)
+
+		# 2. 边缘流沙沉降环 (Outer Sinking Rim Ring)
+		_ring_outer = _make_ring(r * 0.96, r * 1.02, Color(0.85, 0.68, 0.32, 0.75), 0.05)
 		add_child(_ring_outer)
 
-		# Inner swirl ring.
-		_ring_inner = _make_ring(r * 0.45, r * 0.52, Color(0.5, 0.38, 0.14, 0.7), 0.03)
-		add_child(_ring_inner)
-
-		# Sinking sand grains.
-		_swirl = CPUParticles3D.new()
-		_swirl.name = "SinkingSand"
-		_swirl.amount = 48
-		_swirl.lifetime = 1.0
-		_swirl.one_shot = false
-		_swirl.explosiveness = 0.4
-		_swirl.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
-		_swirl.emission_sphere_radius = r * 0.6
-		_swirl.direction = Vector3.DOWN
-		_swirl.spread = 20.0
-		_swirl.gravity = Vector3(0.0, -4.0, 0.0)
-		_swirl.initial_velocity_min = 0.5
-		_swirl.initial_velocity_max = 1.6
-		var sm := SphereMesh.new()
-		sm.radius = 0.06
-		sm.height = 0.12
-		_swirl.mesh = sm
-		var smat := StandardMaterial3D.new()
-		smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		smat.albedo_color = Color(0.62, 0.5, 0.24, 0.85)
-		_swirl.material_override = smat
-		add_child(_swirl)
-		_swirl.position = Vector3(0.0, 0.15, 0.0)
-		_swirl.emitting = true
+		# 展开动效
+		_vortex.scale = Vector3(0.2, 0.2, 0.2)
+		_ring_outer.scale = Vector3(0.2, 0.2, 0.2)
+		var tw := create_tween().set_parallel(true)
+		tw.tween_property(_vortex, "scale", Vector3.ONE, 0.30).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tw.tween_property(_ring_outer, "scale", Vector3.ONE, 0.30).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 	func _make_ring(inner_r: float, outer_r: float, color: Color, height: float) -> MeshInstance3D:
 		var ring := MeshInstance3D.new()
 		var tm := TorusMesh.new()
 		tm.inner_radius = inner_r
 		tm.outer_radius = outer_r
-		tm.rings = 40
-		tm.ring_segments = 5
+		tm.rings = 36
+		tm.ring_segments = 6
 		ring.mesh = tm
 		var mat := StandardMaterial3D.new()
 		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -367,7 +341,7 @@ class QuicksandZone extends Node3D:
 		mat.albedo_color = color
 		mat.emission_enabled = true
 		mat.emission = Color(color.r, color.g, color.b)
-		mat.emission_energy_multiplier = 1.1
+		mat.emission_energy_multiplier = 0.9
 		ring.material_override = mat
 		ring.position.y = height
 		return ring
@@ -377,3 +351,9 @@ func preload_assets() -> void:
 	AudioManagerScript.preload_sounds([
 		"res://assets/voice/RPGsounds_Kenney/OGG/clothBelt2.ogg"
 	])
+
+
+func get_warmup_materials() -> Array:
+	var m_vortex := ShaderMaterial.new()
+	m_vortex.shader = QuicksandVortexShader
+	return [m_vortex]

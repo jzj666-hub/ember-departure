@@ -1,0 +1,13 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://bqjobk5011u1f"]
+
+[ext_resource type="Texture2D" uid="uid://dqejfv4o2vrm4" path="res://assets/characters/conscientious_merchant/merchant.fbm/Mat_27___Pbr_Diffuse.png" id="1_oxgiv"]
+
+[resource]
+resource_name = "Mat_27___Pbr"
+transparency = 4
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+albedo_texture = ExtResource("1_oxgiv")
+emission_enabled = true
+emission_energy_multiplier = 0.0

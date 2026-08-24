@@ -5,7 +5,59 @@ signal exchange_completed(amount_vouchers: int, gold_spent: int)
 
 const FONT_CHINESE := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 const FONT_GLITCH := "res://assets/Fonts/Long_Cang,Rubik_Glitch/Rubik_Glitch/RubikGlitch-Regular.ttf"
+const MERCHANT_SCENE := "res://assets/characters/cunning_merchant/cunning_merchant.tscn"
 const EXCHANGE_RATE := 100 # 100 Gold = 1 Ember Voucher
+const VOICE_BASE_DIR := "res://assets/voice/merchant_voice/"
+
+const VOICE_BANK := {
+	"greeting": [
+		{
+			"file": "可莉-2026-08-22-23-44-快来看快来看！可莉的超级杂货铺开张啦.mp3",
+			"text": "快来看快来看！可莉的超级杂货铺开张啦！"
+		},
+		{
+			"file": "可莉-2026-08-23-00-02-我爱二币！我爱二币！大哥哥大姐姐不要误会哦，这真的不是在骂人，是凯亚哥哥教可莉念的招财口号，他说.mp3",
+			"text": "我爱二币！我爱二币！这真的不是在骂人，是凯亚哥哥教的招财口号哦～"
+		},
+	],
+	"interact": [
+		{
+			"file": "可莉-2026-08-22-23-59-哒哒哒～只要先偷偷标贵四分之一，然后再假装亏本大甩卖打八折，客人买得高兴，可莉也拿到了想要的摩拉.mp3",
+			"text": "哒哒哒～只要假装亏本大甩卖打八折，客人买得高兴，可莉也拿到摩拉～"
+		},
+		{
+			"file": "可莉-2026-08-22-23-44-快来看快来看！可莉的超级杂货铺开张啦.mp3",
+			"text": "快来看快来看！可莉的超级杂货铺开张啦！"
+		},
+	],
+	"exchange": [
+		{
+			"file": "可莉-2026-08-22-23-55-嘿嘿，其实可莉刚才偷偷把价格算贵了一点点，因为真的很想买超甜的落落莓大棒棒糖吃嘛！.mp3",
+			"text": "嘿嘿，其实可莉偷偷把价格算贵了一点点，因为想买超甜的大棒棒糖吃嘛！"
+		},
+	],
+	"cancel": [
+		{
+			"file": "可莉-2026-08-22-23-46-唔……好吧，肯定是可莉要价太高了，早知道就说只要咬一小口小蛋糕就可以换了嘛.mp3",
+			"text": "唔……好吧，肯定是可莉要价太高了，早知道说咬一小口小蛋糕就能换了嘛。"
+		},
+	],
+	"leave": [
+		{
+			"file": "可莉-2026-08-22-23-50-嘟嘟可，收摊收摊！既然没人买，那今天可莉的杂货铺就宣布提早下班啦！.mp3",
+			"text": "嘟嘟可，收摊收摊！既然没人买，今天可莉的杂货铺宣布提早下班啦！"
+		},
+	]
+}
+
+var _merchant_character: Character = null
+var _voice_player: AudioStreamPlayer3D = null
+var _subtitle_label: Label3D = null
+var _subtitle_hide_time: float = 0.0
+var _last_voice_time: float = -999.0
+var _last_played_file: String = ""
+var _has_traded_in_session: bool = false
+var _has_opened_dialog_in_session: bool = false
 
 var _area: Area3D
 var _prompt_label: Label3D
@@ -36,12 +88,37 @@ func _ready() -> void:
 	_build_ui()
 
 
+func _process(_delta: float) -> void:
+	if _subtitle_label != null and _subtitle_label.visible:
+		if float(Time.get_ticks_msec()) * 0.001 >= _subtitle_hide_time:
+			_subtitle_label.visible = false
+
+
 func _build_merchant_visuals() -> void:
-	# Name & Prompt Label
+	if ResourceLoader.exists(MERCHANT_SCENE):
+		var scn := load(MERCHANT_SCENE) as PackedScene
+		if scn != null:
+			_merchant_character = scn.instantiate() as Character
+			if _merchant_character != null:
+				add_child(_merchant_character)
+				_merchant_character.rotation = Vector3.ZERO
+				if _merchant_character.has_clip("anims/idle"):
+					_merchant_character.play("anims/idle")
+
+	_voice_player = AudioStreamPlayer3D.new()
+	_voice_player.name = "MerchantVoice"
+	_voice_player.max_distance = 35.0
+	_voice_player.unit_size = 5.5
+	_voice_player.volume_db = 6.0
+	_voice_player.bus = "Master"
+	_voice_player.position = Vector3(0.0, 1.6, 0.0)
+	_voice_player.finished.connect(_on_voice_finished)
+	add_child(_voice_player)
+
 	_name_label = Label3D.new()
 	_name_label.text = "★ 灰烬商贩 · 艾尔兰 ★"
 	_name_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_name_label.position.y = 2.4
+	_name_label.position.y = 2.2
 	_name_label.font_size = 28
 	_name_label.outline_size = 8
 	_name_label.modulate = Color(1.0, 0.85, 0.3)
@@ -50,11 +127,24 @@ func _build_merchant_visuals() -> void:
 	_prompt_label = Label3D.new()
 	_prompt_label.text = "[E] 交互交易"
 	_prompt_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	_prompt_label.position.y = 2.05
+	_prompt_label.position.y = 1.9
 	_prompt_label.font_size = 24
 	_prompt_label.outline_size = 6
 	_prompt_label.visible = false
 	add_child(_prompt_label)
+
+	_subtitle_label = Label3D.new()
+	_subtitle_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	_subtitle_label.position.y = 2.55
+	_subtitle_label.font_size = 18
+	_subtitle_label.outline_size = 6
+	_subtitle_label.modulate = Color(1.0, 0.95, 0.65)
+	_subtitle_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_subtitle_label.width = 280.0
+	_subtitle_label.visible = false
+	if _font_chinese != null:
+		_subtitle_label.font = _font_chinese
+	add_child(_subtitle_label)
 
 
 func _build_trigger() -> void:
@@ -307,8 +397,12 @@ func _on_confirm_exchange() -> void:
 
 	var success: bool = prof.exchange_gold_to_vouchers(cost, EXCHANGE_RATE)
 	if success:
+		_has_traded_in_session = true
 		_message_label.text = "✓ 成功兑换 %d 张灰烬凭证！" % _buy_vouchers_amount
 		_message_label.modulate = Color(0.3, 0.95, 0.5)
+		if _merchant_character != null and _merchant_character.has_clip("anims/yes"):
+			_merchant_character.play("anims/yes", 0.1)
+		play_merchant_voice("exchange", true)
 		exchange_completed.emit(_buy_vouchers_amount, cost)
 		_refresh_ui_labels()
 	else:
@@ -332,9 +426,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func _open_dialog() -> void:
 	if _dialog_panel == null:
 		return
+	_has_opened_dialog_in_session = true
 	_message_label.text = ""
 	_refresh_ui_labels()
 	_dialog_panel.visible = true
+	play_merchant_voice("interact", true)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
@@ -342,6 +438,10 @@ func _close_dialog() -> void:
 	if _dialog_panel == null:
 		return
 	_dialog_panel.visible = false
+	if not _has_traded_in_session:
+		play_merchant_voice("cancel", false)
+	elif _merchant_character != null and _merchant_character.has_clip("anims/idle"):
+		_merchant_character.play("anims/idle", 0.2)
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -349,8 +449,11 @@ func _close_dialog() -> void:
 func _on_body_entered(body: Node3D) -> void:
 	if body is CharacterBody3D:
 		_player_in_range = body as CharacterBody3D
+		_has_traded_in_session = false
+		_has_opened_dialog_in_session = false
 		if _prompt_label != null:
 			_prompt_label.visible = true
+		play_merchant_voice("greeting")
 
 
 func _on_body_exited(body: Node3D) -> void:
@@ -360,3 +463,58 @@ func _on_body_exited(body: Node3D) -> void:
 			_prompt_label.visible = false
 		if _dialog_panel != null and _dialog_panel.visible:
 			_close_dialog()
+		if not _has_traded_in_session and not _has_opened_dialog_in_session:
+			play_merchant_voice("leave", false)
+
+
+## Plays random contextual voice line based on player action.
+func play_merchant_voice(category: String, force: bool = false) -> void:
+	var now := float(Time.get_ticks_msec()) * 0.001
+	if not force and now - _last_voice_time < 3.5:
+		return
+	if not force and _voice_player != null and _voice_player.playing:
+		return
+
+	var list: Array = VOICE_BANK.get(category, [])
+	if list.is_empty():
+		return
+
+	var candidates := list.duplicate()
+	if candidates.size() > 1:
+		candidates = candidates.filter(func(item): return item.file != _last_played_file)
+	if candidates.is_empty():
+		candidates = list
+
+	var chosen: Dictionary = candidates[randi() % candidates.size()]
+	var file_name: String = chosen.file
+	var full_path := VOICE_BASE_DIR.path_join(file_name)
+	var text: String = chosen.get("text", "")
+
+	if not ResourceLoader.exists(full_path):
+		return
+	var stream := load(full_path) as AudioStream
+	if stream == null:
+		return
+
+	_last_voice_time = now
+	_last_played_file = file_name
+
+	if _voice_player != null:
+		_voice_player.stop()
+		_voice_player.stream = stream
+		_voice_player.play()
+
+	if _merchant_character != null and _merchant_character.has_clip("anims/idle_talking"):
+		_merchant_character.play("anims/idle_talking", 0.2)
+
+	if _subtitle_label != null and not text.is_empty():
+		_subtitle_label.text = "「%s」" % text
+		_subtitle_label.visible = true
+		var duration: float = stream.get_length() if stream.has_method("get_length") else 4.0
+		_subtitle_hide_time = now + maxf(duration + 1.0, 3.5)
+
+
+func _on_voice_finished() -> void:
+	if _dialog_panel == null or not _dialog_panel.visible:
+		if _merchant_character != null and _merchant_character.has_clip("anims/idle"):
+			_merchant_character.play("anims/idle", 0.2)

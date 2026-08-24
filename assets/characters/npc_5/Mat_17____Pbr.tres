@@ -1,0 +1,9 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://l1vchwg4fach"]
+
+[resource]
+resource_name = "Mat_17____Pbr"
+cull_mode = 2
+diffuse_mode = 3
+specular_mode = 2
+emission_enabled = true
+emission_energy_multiplier = 0.0

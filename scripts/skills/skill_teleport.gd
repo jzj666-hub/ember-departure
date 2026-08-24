@@ -161,6 +161,8 @@ static func _spawn_supersonic_breakthrough(start_pos: Vector3, end_pos: Vector3,
 	outer_mat.set_shader_parameter("speed", w_spd)
 	outer_mat.set_shader_parameter("fade", 1.0)
 	outer_mat.set_shader_parameter("streak_count", 20.0)
+	VfxTextures.bind(outer_mat, "wind_tex", VfxTextures.WIND_SLASH, "tex_mix", 0.75)
+	outer_mat.set_shader_parameter("tex_tiling", 2.0)
 	outer_node.material_override = outer_mat
 	parent.add_child(outer_node)
 
@@ -189,6 +191,8 @@ static func _spawn_supersonic_breakthrough(start_pos: Vector3, end_pos: Vector3,
 	inner_mat.set_shader_parameter("speed", w_spd * 1.5)
 	inner_mat.set_shader_parameter("fade", 1.0)
 	inner_mat.set_shader_parameter("streak_count", 12.0)
+	VfxTextures.bind(inner_mat, "wind_tex", VfxTextures.WIND_SLASH, "tex_mix", 0.5)
+	inner_mat.set_shader_parameter("tex_tiling", 3.5)
 	inner_node.material_override = inner_mat
 	parent.add_child(inner_node)
 
@@ -222,9 +226,6 @@ static func _spawn_supersonic_breakthrough(start_pos: Vector3, end_pos: Vector3,
 		var r_pos := start_pos.lerp(end_pos, ratio) + chest_h
 		_spawn_sonic_ring(r_pos, dir, parent, wind_color, i * 0.025)
 
-	# Speed Streak Particles
-	_spawn_streak_particles(start_pos + chest_h, end_pos + chest_h, dir, dist, parent, wind_color)
-
 static func _spawn_sonic_ring(pos: Vector3, dir: Vector3, parent: Node, color: Color, delay: float) -> void:
 	var q_mesh := QuadMesh.new()
 	q_mesh.size = Vector2(2.0, 2.0)
@@ -238,6 +239,8 @@ static func _spawn_sonic_ring(pos: Vector3, dir: Vector3, parent: Node, color: C
 	r_mat.set_shader_parameter("ring_color", color)
 	r_mat.set_shader_parameter("fade", 1.0)
 	r_mat.set_shader_parameter("thickness", 0.14)
+	VfxTextures.bind(r_mat, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 1.0)
+	VfxTextures.bind_ramp(r_mat, VfxTextures.RAMP_ICE, 0.7)
 	ring_inst.material_override = r_mat
 	parent.add_child(ring_inst)
 
@@ -263,38 +266,6 @@ static func _spawn_sonic_ring(pos: Vector3, dir: Vector3, parent: Node, color: C
 	, 1.0, 0.0, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.chain().tween_callback(ring_inst.queue_free)
 
-static func _spawn_streak_particles(from_p: Vector3, to_p: Vector3, dir: Vector3, dist: float, parent: Node, _color: Color) -> void:
-	var parts := CPUParticles3D.new()
-	parts.name = "WindStreaks"
-	parts.amount = 24
-	parts.lifetime = 0.22
-	parts.one_shot = true
-	parts.explosiveness = 0.95
-	parts.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
-	parts.emission_box_extents = Vector3(0.4, 0.4, dist * 0.5)
-	parts.direction = dir
-	parts.spread = 6.0
-	parts.gravity = Vector3.ZERO
-	parts.initial_velocity_min = 8.0
-	parts.initial_velocity_max = 18.0
-
-	var p_mesh := BoxMesh.new()
-	p_mesh.size = Vector3(0.04, 0.04, 0.75)
-	var p_mat := StandardMaterial3D.new()
-	p_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	p_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	p_mat.albedo_color = Color(1.0, 1.0, 1.0, 0.8)
-	parts.mesh = p_mesh
-	parts.material_override = p_mat
-
-	parent.add_child(parts)
-	parts.global_position = (from_p + to_p) * 0.5
-	_align_cylinder_to_forward(parts, dir)
-	parts.emitting = true
-
-	var tw := parts.create_tween()
-	tw.tween_interval(0.28)
-	tw.tween_callback(parts.queue_free)
 
 static func _align_cylinder_to_forward(node: Node3D, forward_dir: Vector3) -> void:
 	var forward := forward_dir.normalized()
@@ -304,6 +275,7 @@ static func _align_cylinder_to_forward(node: Node3D, forward_dir: Vector3) -> vo
 	var right := forward.cross(temp_up).normalized()
 	var normal := right.cross(forward).normalized()
 	node.global_transform.basis = Basis(right, forward, normal)
+
 
 static func _trigger_camera_punch(caster: Node) -> void:
 	if caster == null or not caster.is_inside_tree():
@@ -332,6 +304,14 @@ func preload_assets() -> void:
 func get_warmup_materials() -> Array:
 	var m1 := ShaderMaterial.new()
 	m1.shader = WindCutterShader
+	VfxTextures.bind(m1, "wind_tex", VfxTextures.WIND_SLASH, "tex_mix", 0.75)
+
 	var m2 := ShaderMaterial.new()
 	m2.shader = SonicRingShader
-	return [m1, m2]
+	VfxTextures.bind(m2, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 1.0)
+	VfxTextures.bind_ramp(m2, VfxTextures.RAMP_ICE, 0.7)
+
+	var m3 := ShaderMaterial.new()
+	m3.shader = CyberGhostEffect.SHADER_RES
+
+	return [m1, m2, m3]

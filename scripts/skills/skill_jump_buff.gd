@@ -4,6 +4,7 @@ extends "res://scripts/skills/skill_base.gd"
 ## VFX: Glowing cyan/gold wind spiral vortex at feet, rising aerodynamic air ribbons, and launch burst.
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const SonicRingShader = preload("res://shaders/sonic_boom_ring.gdshader")
 
 var duration: float = 8.0
 var jump_multiplier: float = 2.4
@@ -203,13 +204,17 @@ static func _spawn_wind_vortex_vfx(caster: CharacterBody3D, dur: float, parent: 
 	torus.rings = 24
 	torus.ring_segments = 12
 	ring.mesh = torus
+	ring.rotation.x = -PI * 0.5
 	ring.position.y = 0.08
 
-	var ring_mat := StandardMaterial3D.new()
-	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	ring_mat.albedo_color = Color(0.2, 0.95, 1.0, 0.85)
-	ring_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# Arc-wind ring: sonic_boom_ring shader gives it concentric ripple detail.
+	var ring_mat := ShaderMaterial.new()
+	ring_mat.shader = SonicRingShader
+	ring_mat.set_shader_parameter("ring_color", Color(0.2, 0.95, 1.0, 0.85))
+	ring_mat.set_shader_parameter("fade", 1.0)
+	ring_mat.set_shader_parameter("thickness", 0.14)
+	VfxTextures.bind(ring_mat, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 0.9)
+	VfxTextures.bind_ramp(ring_mat, VfxTextures.RAMP_ARC, 0.7)
 	ring.material_override = ring_mat
 	root_vfx.add_child(ring)
 
@@ -224,14 +229,16 @@ static func _spawn_wind_vortex_vfx(caster: CharacterBody3D, dur: float, parent: 
 	parts.gravity = Vector3(0.0, 4.0, 0.0)
 	parts.initial_velocity_min = 2.0
 	parts.initial_velocity_max = 4.5
-	var sm := SphereMesh.new()
-	sm.radius = 0.04
-	sm.height = 0.08
+	# Billboard smoke puff for each particle — more atmospheric than a plain sphere.
+	var sm := QuadMesh.new()
+	sm.size = Vector2(0.12, 0.12)
 	parts.mesh = sm
 	var p_mat := StandardMaterial3D.new()
 	p_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	p_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	p_mat.albedo_color = Color(0.3, 0.95, 0.85, 0.75)
+	p_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	p_mat.albedo_texture = VfxTextures.get_tex(VfxTextures.SMOKE_PUFF)
 	parts.material_override = p_mat
 	root_vfx.add_child(parts)
 	parts.emitting = true
@@ -244,7 +251,10 @@ static func _spawn_wind_vortex_vfx(caster: CharacterBody3D, dur: float, parent: 
 			ring.rotate_y(0.12)
 	, 0.0, 1.0, dur)
 
-	tw.chain().tween_property(ring_mat, "albedo_color:a", 0.0, 0.3)
+	tw.chain().tween_method(func(v: float):
+		if is_instance_valid(ring_mat):
+			ring_mat.set_shader_parameter("fade", v)
+	, 1.0, 0.0, 0.3)
 	tw.chain().tween_callback(root_vfx.queue_free)
 
 	return root_vfx
@@ -254,3 +264,12 @@ func preload_assets() -> void:
 	AudioManagerScript.preload_sounds([
 		"res://assets/voice/RPGsounds_Kenney/OGG/clothBelt2.ogg"
 	])
+
+
+func get_warmup_materials() -> Array:
+	var m := ShaderMaterial.new()
+	m.shader = SonicRingShader
+	VfxTextures.bind(m, "ring_tex", VfxTextures.SHOCKWAVE_RING, "tex_mix", 0.9)
+	VfxTextures.bind_ramp(m, VfxTextures.RAMP_ARC, 0.7)
+	return [m]
+

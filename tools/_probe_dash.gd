@@ -34,9 +34,11 @@ func _run() -> void:
 		for child in scene.get_children():
 			if child is DashBeam:
 				beams += 1
-		if player._dash_left > 0.0 and player._tree != null:
-			var slot: int = player._weapon_graph.slot_of(player._weapon_graph.current)
-			var scale_val = player._tree.get("parameters/weapon_%d_rate/scale" % slot)
+		if player._dash_left > 0.0 and player._rig != null:
+			var graph = player._weapons.graph
+			var slot: int = graph.slot_of(graph.current)
+			var scale_val = player._rig.tree.get("parameters/%s%d_rate/scale" % [
+				CharacterAnimRig.WEAPON_SLOT_PREFIX, slot])
 			if slot >= 0 and scale_val != null and float(scale_val) <= 0.001:
 				frozen += 1
 

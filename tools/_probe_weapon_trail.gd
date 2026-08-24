@@ -294,8 +294,8 @@ func _check_wiring() -> void:
 
 	var player = scene._player
 	_ok("the controller got the settings",
-		bool(player._trail_cfg.get("enabled", false)))
-	_ok("and the blade they anchor to", player._trail_item != null)
+		bool(player._vfx._trail_cfg.get("enabled", false)))
+	_ok("and the blade they anchor to", player._vfx._trail_item != null)
 
 	var item = scene._equipped()
 	_ok("the panel put markers on the blade", item != null
@@ -307,9 +307,9 @@ func _check_wiring() -> void:
 	var drew := 0
 	for i in 90:
 		await physics_frame
-		if player._trail != null and is_instance_valid(player._trail):
+		if player._vfx._trail != null and is_instance_valid(player._vfx._trail):
 			started = true
-			drew = maxi(drew, player._trail._samples.size())
+			drew = maxi(drew, player._vfx._trail._samples.size())
 	_ok("a swing starts a ribbon", started)
 	_ok("and the ribbon lays samples down", drew > 0, "%d at most" % drew)
 

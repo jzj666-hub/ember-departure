@@ -120,7 +120,11 @@ Godot 资源*。游戏那边目前只有第三人称移动（走、跑、横移�
 | `scripts/character.gd` | 管线交付的接口：找到 AnimationPlayer 和 Skeleton3D，挂动作库，`play()` / `resolve()` / `clip_names()` / `has_clip()`，外加 `body_height` 和手部插槽 |
 | `scripts/main_menu.gd` | 主菜单，测试场景的入口 |
 | `scripts/playground.gd` | 第三人称试玩场景：环境、地面、几何体、生成角色、HUD |
-| `scripts/player_controller.gd` | 走 / 跑 / 横移 / 蹲行 / 撞墙刹停 / 跳跃 / 攀爬 / **跨小台阶** / 下落 / 三段落地 / 翻滚 / 持械站姿 / 图驱动的攻击，运行时搭两层 AnimationTree |
+| `scripts/player_controller.gd` | 走 / 跑 / 横移 / 蹲行 / 撞墙刹停 / 跳跃 / 攀爬 / **跨小台阶** / 下落 / 三段落地 / 翻滚 / 持械站姿 / 图驱动的攻击。**只剩状态机和身体**，其余四层各自成文件（见下），互相不认识，只经过控制器 |
+| `scripts/player/anim_rig.gd` | `CharacterAnimRig`：运行时那两层 AnimationTree、clip 预处理（`flatten()` / 反向烘焙 / 测速）、动作层与挥击层的播放和每帧参数。**所有 clip 名字和 `parameters/...` 路径只在这里出现**。加动作 clip、改混合树、换过滤器都改这一个文件 |
+| `scripts/player/player_probes.gd` | `PlayerProbes`：动之前问世界的那些问题 —— 找 ledge、跨台阶、落点预测（`predict_impact()`）、翻滚落地有没有地。纯查询，只有 `try_step_up()` 会写位置。阈值全部从 body 上读，不自带常量 |
+| `scripts/player/player_vfx.gd` | `PlayerVfx`：冲刺的光束 / 淡出（`DashVfx` 枚举住在这里）和刀刃残影的生命周期。控制器只说「开始 / 走一帧 / 收」 |
+| `scripts/player/player_weapons.gd` | `PlayerWeapons`：`WeaponGraph` 的归属，加上装备接口（把武器的 clip 装进挥击槽、换站姿 clip / 过滤器 / 移动极点）。依赖单向：它认识 rig，rig 不认识武器 |
 | `scripts/character_intent.gd` | 一帧的「这个角色想干什么」，纯数据。战斗按键槽的名字表在这里 |
 | `scripts/intent_source.gd` | 这些决定从哪来的基类。玩家、bot、录像、剧情各写一份 |
 | `scripts/player_intent_source.gd` | 键鼠那一份。双击 Shift 的判定在这里（那是输入设备的性质，不是角色的），物理键 → 战斗槽的绑定表也在这里 |
@@ -313,7 +317,7 @@ Godot 资源*。游戏那边目前只有第三人称移动（走、跑、横移�
 | 给角色加游戏逻辑 | `scripts/character.gd`，管线不会覆盖它 |
 | 加动作后处理（根运动提取、循环点） | `AnimPipeline._harvest()`（`:653`），每个 clip 都经过这里 |
 | 换调试场景的灯光/地面 | 先解决上面 E 里的漂移问题，否则改了会被抹掉 |
-| **加一个新的角色动作** | `PlayerController.ACTIONS` 加一行（名字 / clip / 烘哪几轴 / 循不循环），树和 TimeScale 自动生出来；再加一个 `State` 和它的 `_drive_*()` |
+| **加一个新的角色动作** | `CharacterAnimRig.ACTIONS` 加一行（名字 / clip / 烘哪几轴 / 循不循环），树和 TimeScale 自动生出来；再加一个 `State` 和它的 `_drive_*()` |
 | **配一把武器的握姿 / 站姿 / 连招** | 不改代码。进武器测试场景调，按 `S` 存到 `assets/combat_tools/configs/<武器名>.json`。站姿那三个下拉分别是静止 / 走 / 跑，后两个留空就沿用空手动作。面板用 `J`/`K`/`B` 开关，`L` 全关 |
 | **往武器配置面板加一组设置** | `weapon_test.gd` 的 `_build_tuner()` 里加一句 `_fold(body, "标题", true)`，内容塞进它返回的 box。面板本身会滚，不用挪别的东西 |
 | **加一个战斗按键槽**（比如 `dodge`） | `CharacterIntent.BUTTONS` 加一项 → `PlayerIntentSource.KEY_BUTTONS` 绑个键。配置里立刻能选，bot 走 `request_button("dodge")` |
@@ -343,7 +347,7 @@ Godot 资源*。游戏那边目前只有第三人称移动（走、跑、横移�
    要压平脚趾的是脚踝那根骨头。
 3. `.import` 里的 skeleton key 必须是 `PATH:<节点路径>` —— 写成节点名 Godot 会**静默忽略**，
    一切看着正常但轨道绑不上。
-4. 武器动作槽是**启动时一次性预留**的（`PlayerController.WEAPON_SLOTS`），装备时只往
+4. 武器动作槽是**启动时一次性预留**的（`CharacterAnimRig.WEAPON_SLOTS`），装备时只往
    槽里写 clip。别改成按需增删 —— 改 `AnimationNodeTransition.input_count` 会重建全部
    输入，把正在播的姿势打回原点，于是每次拔刀角色都会抖一下。上限的代价就是从这来的。
    槽在**挥击层**（`swing`）上，不在动作层上：动作层整份替换姿势，那对跳跃是对的、对

@@ -1,0 +1,19 @@
+[gd_resource type="Resource" script_class="EnvPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/env_preset.gd" id="1_env"]
+
+[resource]
+script = ExtResource("1_env")
+sky_top_color = Color(0.18, 0.22, 0.3, 1)
+sky_horizon_color = Color(0.55, 0.45, 0.4, 1)
+ground_bottom_color = Color(0.08, 0.08, 0.1, 1)
+ground_horizon_color = Color(0.4, 0.42, 0.48, 1)
+ambient_energy = 0.5
+reflect_sky = true
+sun_energy = 1.1
+sun_yaw_deg = 35.0
+shadow_blend_splits = true
+shadow_max_distance = 150.0
+shadow_fade_start = 0.85
+shadow_bias = 0.03
+shadow_normal_bias = 1.0

@@ -1,0 +1,72 @@
+{
+	"punch_cross": {
+		"hit_window": [
+			0.1,
+			0.4
+		],
+		"single_hit": true
+	},
+	"punch_jab": {
+		"hit_window": [
+			0.08,
+			0.35
+		],
+		"single_hit": true
+	},
+	"standing_melee_attack_horizontal": {
+		"hit_window": [
+			0.12,
+			0.55
+		],
+		"single_hit": true
+	},
+	"sword_attack": {
+		"hit_window": [
+			0.0,
+			0.0
+		],
+		"single_hit": true
+	},
+	"sword_dash": {
+		"hit_window": [
+			0.15,
+			0.65
+		],
+		"single_hit": true
+	},
+	"sword_heavy_combo": {
+		"hit_window": [
+			0.0,
+			0.0
+		],
+		"single_hit": false
+	},
+	"sword_regular_a": {
+		"hit_window": [
+			0.1,
+			0.5
+		],
+		"single_hit": true
+	},
+	"sword_regular_b": {
+		"hit_window": [
+			0.1,
+			0.5
+		],
+		"single_hit": true
+	},
+	"sword_regular_c": {
+		"hit_window": [
+			0.15,
+			0.6
+		],
+		"single_hit": true
+	},
+	"sword_regular_combo": {
+		"hit_window": [
+			0.0,
+			0.0
+		],
+		"single_hit": false
+	}
+}

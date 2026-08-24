@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://c2w5ncqldfl7b"]
+
+[ext_resource type="Texture2D" uid="uid://bmjdnfrxf76av" path="res://assets/characters/npc_3/npc_7.png" id="1_56gka"]
+
+[resource]
+resource_name = "MI_NPC_Fhilia_Outline_001_Pbr"
+vertex_color_use_as_albedo = true
+albedo_texture = ExtResource("1_56gka")
+emission_enabled = true
+emission_energy_multiplier = 0.0

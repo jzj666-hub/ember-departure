@@ -100,6 +100,14 @@ func blade_tip_global() -> Vector3:
 	return global_position + global_transform.basis.y * maxf(_length, 0.5)
 
 
+func blade_base_world() -> Vector3:
+	return blade_base_global()
+
+
+func blade_tip_world() -> Vector3:
+	return blade_tip_global()
+
+
 func _place_trail_anchors() -> void:
 	if _trail_anchors.is_empty() or mesh_instance == null:
 		return

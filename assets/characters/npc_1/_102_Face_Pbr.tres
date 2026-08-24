@@ -1,0 +1,10 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://ddya5vuar87el"]
+
+[ext_resource type="Texture2D" uid="uid://c7fb1fuwjss7q" path="res://assets/characters/npc_1/npc_1.fbm/_102_Face_Pbr_Diffuse.tga" id="1_3grmb"]
+
+[resource]
+resource_name = "_102_Face_Pbr"
+vertex_color_use_as_albedo = true
+albedo_texture = ExtResource("1_3grmb")
+emission_enabled = true
+emission_energy_multiplier = 0.0

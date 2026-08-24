@@ -12,6 +12,14 @@ const PlayerControllerScript = preload("res://scripts/player_controller.gd")
 const PlayerIntentSourceScript = preload("res://scripts/player_intent_source.gd")
 const NPCIntentSourceScript = preload("res://scripts/npc_intent_source.gd")
 const FollowCameraScript = preload("res://scripts/follow_camera.gd")
+const SkillLoadoutScript = preload("res://scripts/skills/skill_loadout.gd")
+const SkillDrawPanelScript = preload("res://scripts/player_client/skill_draw_panel.gd")
+const SkillAimScript = preload("res://scripts/skills/skill_aim.gd")
+const SkillRegistryScript = preload("res://scripts/skills/skill_registry.gd")
+const KeybindManagerScript = preload("res://scripts/keybind_manager.gd")
+const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
+const ENV_PRESET = preload("res://config/env/chase_dusk.tres")
+const GROUND_PRESET = preload("res://config/ground/chase_grid.tres")
 
 const TITLE_SCENE := "res://scenes/player_client/title_screen.tscn"
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
@@ -34,6 +42,11 @@ enum State {
 
 var preloaded_map_path: String = ""
 var _custom_font: Font = null
+
+var _skill_label: Label
+var _skill_loadout: SkillLoadout
+var _skill_draw_panel: SkillDrawPanel
+var _skill_aim: SkillAim
 
 static var next_map_path: String = ""
 
@@ -152,10 +165,114 @@ func _ready() -> void:
 		_nav.rebuild()
 		_nav.set_capability(_npc)
 
+	_setup_skill_draw()
 	_start_escape_countdown()
 
 
+# --- Skill draw & casting ----------------------------------------------------
+
+## Player is always the runner here, so the draw comes from the runner pool.
+func _setup_skill_draw() -> void:
+	SkillRegistryScript.init_registry()
+	SkillRegistryScript.warmup_all_shaders(self)
+
+	_skill_loadout = SkillLoadoutScript.new()
+	_skill_loadout.name = "SkillLoadout"
+	add_child(_skill_loadout)
+	_skill_loadout.setup(_player, self, true)
+	_skill_loadout.cooldown_changed.connect(_on_skill_cooldown_changed)
+
+	_skill_aim = SkillAimScript.new()
+	_skill_aim.name = "SkillAim"
+	add_child(_skill_aim)
+	_skill_aim.setup(_camera)
+
+	_skill_draw_panel = SkillDrawPanelScript.new()
+	_skill_draw_panel.name = "SkillDrawPanel"
+	add_child(_skill_draw_panel)
+
+	var rolled := _skill_loadout.roll()
+	if rolled.is_empty():
+		return
+	var names: Array[String] = []
+	for s_id in _skill_loadout.candidates():
+		names.append(_skill_loadout.display_name_of(s_id))
+	_skill_draw_panel.play(names, _skill_loadout.display_name_of(rolled))
+	_refresh_skill_hud()
+
+
+func _on_skill_cooldown_changed(_left: float, _total: float) -> void:
+	_refresh_skill_hud()
+
+
+func _refresh_skill_hud() -> void:
+	if _skill_label == null or _skill_loadout == null:
+		return
+	_skill_label.text = _skill_loadout.hud_text(_skill_key_label())
+
+
+func _skill_key_label() -> String:
+	var km = KeybindManagerScript.get_instance()
+	if km == null:
+		return "1"
+	var text: String = km.binding_key_only_text("skill_1")
+	return text if not text.is_empty() and text != "未绑定" else "1"
+
+
+func _is_skill_key(event: InputEventKey) -> bool:
+	var km = KeybindManagerScript.get_instance()
+	var code := KEY_1
+	if km != null:
+		var b: Dictionary = km.get_binding("skill_1")
+		if b.get("device", "key") == "key" and int(b.get("code", 0)) != 0:
+			code = int(b.get("code"))
+	return event.keycode == code or event.physical_keycode == code
+
+
+## Key press. An aimed skill arms the ground cursor and waits for the release; the rest fire now.
+func _on_skill_key_pressed() -> bool:
+	if _state != State.CHASE_ACTIVE or _skill_loadout == null:
+		return false
+	if not _skill_loadout.can_cast():
+		return false
+	if _skill_loadout.is_aimed():
+		if _skill_aim != null and not _skill_aim.active:
+			_skill_aim.set_camera(_commander_camera if _commander_mode else _camera)
+			_skill_aim.begin(_skill_loadout.current_skill(), _player)
+		return true
+	return try_cast_skill()
+
+
+## Key release. Only meaningful mid-aim: locks the ground position and casts there.
+func _on_skill_key_released() -> bool:
+	if _skill_aim == null or not _skill_aim.active:
+		return false
+	var pos := _skill_aim.finish()
+	if _state != State.CHASE_ACTIVE:
+		return false
+	return try_cast_skill_at(pos)
+
+
+## Instant cast entry point shared by the key binding and any bot driver.
+func try_cast_skill() -> bool:
+	if _state != State.CHASE_ACTIVE or _skill_loadout == null:
+		return false
+	return _skill_loadout.cast_skill()
+
+
+## Aimed cast entry point shared by the key binding and any bot driver.
+func try_cast_skill_at(target_pos: Vector3) -> bool:
+	if _state != State.CHASE_ACTIVE or _skill_loadout == null:
+		return false
+	return _skill_loadout.cast_skill_at(target_pos)
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and not event.pressed and _is_skill_key(event):
+		if _on_skill_key_released():
+			get_viewport().set_input_as_handled()
+		return
+
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
 			get_viewport().set_input_as_handled()
@@ -165,6 +282,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_TAB:
 			_toggle_commander_mode()
 			get_viewport().set_input_as_handled()
+			return
+		elif _is_skill_key(event):
+			if _on_skill_key_pressed():
+				get_viewport().set_input_as_handled()
 			return
 		elif event.keycode == KEY_X:
 			get_viewport().set_input_as_handled()
@@ -219,6 +340,10 @@ func _process(delta: float) -> void:
 	if _commander_mode:
 		_drive_commander_camera(delta)
 		_cast_crosshair()
+
+	if _skill_aim != null and _skill_aim.active:
+		_skill_aim.set_camera(_commander_camera if _commander_mode else _camera)
+		_skill_aim.update_aim()
 
 
 func _physics_process(delta: float) -> void:
@@ -429,75 +554,11 @@ func _trigger_game_over() -> void:
 
 
 func _build_environment() -> void:
-	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = Color(0.18, 0.22, 0.30)
-	sky_mat.sky_horizon_color = Color(0.55, 0.45, 0.40)
-	sky_mat.ground_bottom_color = Color(0.08, 0.08, 0.10)
-	sky_mat.ground_horizon_color = Color(0.40, 0.42, 0.48)
-
-	var sky := Sky.new()
-	sky.sky_material = sky_mat
-	var env := Environment.new()
-	env.background_mode = Environment.BG_SKY
-	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	env.ambient_light_energy = 0.5
-	env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
-	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-
-	var env_node := WorldEnvironment.new()
-	env_node.environment = env
-	add_child(env_node)
-
-	var sun := DirectionalLight3D.new()
-	sun.rotation_degrees = Vector3(-45.0, 35.0, 0.0)
-	sun.light_energy = 1.1
-	sun.shadow_enabled = true
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.directional_shadow_blend_splits = true
-	sun.directional_shadow_max_distance = 150.0
-	sun.directional_shadow_fade_start = 0.85
-	sun.shadow_bias = 0.03
-	sun.shadow_normal_bias = 1.0
-	add_child(sun)
+	WorldBuilderScript.build_environment(self, ENV_PRESET)
 
 
 func _build_ground() -> void:
-	var body := StaticBody3D.new()
-	body.name = "Ground"
-
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(GROUND_HALF * 2.0, 0.4, GROUND_HALF * 2.0)
-	shape.shape = box
-	shape.position = Vector3(0.0, -0.2, 0.0)
-	body.add_child(shape)
-	add_child(body)
-
-	var mesh := ImmediateMesh.new()
-	var half := int(GROUND_HALF)
-	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	for i in range(-half, half + 1):
-		var major := i % 5 == 0
-		var colour := Color(0.45, 0.50, 0.60, 0.6) if major else Color(0.28, 0.30, 0.35, 0.3)
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(i, 0.0, -half))
-		mesh.surface_add_vertex(Vector3(i, 0.0, half))
-		mesh.surface_set_color(colour)
-		mesh.surface_add_vertex(Vector3(-half, 0.0, i))
-		mesh.surface_add_vertex(Vector3(half, 0.0, i))
-	mesh.surface_end()
-
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.vertex_color_use_as_albedo = true
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-
-	var node := MeshInstance3D.new()
-	node.mesh = mesh
-	node.material_override = mat
-	node.position.y = 0.003
-	add_child(node)
+	WorldBuilderScript.build_ground(self, GROUND_PRESET, GROUND_HALF)
 
 
 class Crosshair extends Control:
@@ -1030,6 +1091,14 @@ func _build_hud() -> void:
 	_status_detail_label.add_theme_font_size_override("font_size", 13)
 	_status_detail_label.modulate = Color(1.0, 1.0, 1.0, 0.65)
 	stat_vbox.add_child(_status_detail_label)
+
+	_skill_label = Label.new()
+	_skill_label.text = "[1] 未持有技能"
+	if _custom_font != null:
+		_skill_label.add_theme_font_override("font", _custom_font)
+	_skill_label.add_theme_font_size_override("font_size", 14)
+	_skill_label.modulate = Color(1.0, 0.85, 0.4)
+	stat_vbox.add_child(_skill_label)
 
 	_hint_x_toggle_label = Label.new()
 	_hint_x_toggle_label.text = "AI 路线与红柱: 已隐藏 (连按两下 X 开启)"

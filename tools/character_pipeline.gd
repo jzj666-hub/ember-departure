@@ -83,6 +83,8 @@ static func list_characters() -> Array:
 			"has_config": settings.present,
 			"target_height": settings.height,
 			"measured_height": settings.measured,
+			"head_pitch_offset": settings.head_pitch_offset,
+			"neck_pitch_offset": settings.neck_pitch_offset,
 		})
 	return out
 
@@ -96,7 +98,13 @@ static func list_characters() -> Array:
 ## is a character configured before this file existed and must be left exactly as
 ## it imports, the second is someone asking for a re-measure.
 static func read_settings(dir_path: String) -> Dictionary:
-	var out := {"height": TARGET_HEIGHT_M, "measured": 0.0, "present": false}
+	var out := {
+		"height": TARGET_HEIGHT_M,
+		"measured": 0.0,
+		"present": false,
+		"head_pitch_offset": 0.0,
+		"neck_pitch_offset": 0.0,
+	}
 	var cfg := ConfigFile.new()
 	if cfg.load(dir_path.path_join(CONFIG_FILE)) != OK:
 		return out
@@ -106,6 +114,8 @@ static func read_settings(dir_path: String) -> Dictionary:
 	# default is a better answer than refusing to import.
 	out.height = height if height > 0.0 else TARGET_HEIGHT_M
 	out.measured = maxf(0.0, float(cfg.get_value(CONFIG_SECTION, "measured_height", 0.0)))
+	out.head_pitch_offset = float(cfg.get_value(CONFIG_SECTION, "head_pitch_offset", 0.0))
+	out.neck_pitch_offset = float(cfg.get_value(CONFIG_SECTION, "neck_pitch_offset", 0.0))
 	return out
 
 
@@ -434,6 +444,10 @@ static func build_scene(character: Dictionary) -> String:
 	# Collision capsules, camera heights and reach are all metres, and none of
 	# them scale themselves when a character is taller. Hand the number over.
 	root.set("body_height", character.target_height)
+	if character.get("head_pitch_offset", 0.0) != 0.0:
+		root.set("head_pitch_offset", character.head_pitch_offset)
+	if character.get("neck_pitch_offset", 0.0) != 0.0:
+		root.set("neck_pitch_offset", character.neck_pitch_offset)
 	if ResourceLoader.exists(AnimPipelineScript.SHARED_LIBRARY_PATH):
 		root.set("shared_animations", load(AnimPipelineScript.SHARED_LIBRARY_PATH))
 	# Reference the character's own library only while its animations/ folder

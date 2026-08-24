@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="EnvPreset" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world/env_preset.gd" id="1_env"]
+
+[resource]
+script = ExtResource("1_env")
+sky_top_color = Color(0.18, 0.24, 0.35, 1)
+sky_horizon_color = Color(0.55, 0.52, 0.58, 1)
+ground_bottom_color = Color(0.1, 0.1, 0.12, 1)
+ground_horizon_color = Color(0.45, 0.48, 0.55, 1)
+glow = true
+glow_additive = true
+glow_intensity = 0.9
+glow_bloom = 0.2
+fog = true
+fog_color = Color(0.35, 0.38, 0.45, 1)
+fog_density = 0.008
+fill_enabled = true
