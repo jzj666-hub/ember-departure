@@ -48,6 +48,8 @@ func poll(body: Node, delta: float, intent: CharacterIntent) -> void:
 
 	# 2. Movement & Stances
 	intent.move = _move_vector()
+	if body != null and is_instance_valid(body) and body.has_meta("confusion_debuff"):
+		intent.move = -intent.move
 	intent.heading = float(body.call("view_yaw")) if body != null and body.has_method("view_yaw") else 0.0
 	intent.crouch = _is_action_held("crouch")
 	intent.run = _is_action_held("run")

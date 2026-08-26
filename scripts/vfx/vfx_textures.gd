@@ -22,6 +22,8 @@ const FLASH_GLOW := DIR + "flash_glow.png"
 const CELLS := DIR + "shield_texture.png"
 ## A smoke puff, despite the file name it shipped under.
 const SMOKE_PUFF := DIR + "VFX Color Ramp Texture (1).png"
+const THUNDER_SIGIL := DIR + "雷电法阵.png"
+const CURVED_WIND_SLASH := DIR + "弧形风刃.png"
 
 const RAMP_FIRE := DIR + "ramps/ramp_fire.png"
 const RAMP_TOXIC := DIR + "ramps/ramp_toxic.png"

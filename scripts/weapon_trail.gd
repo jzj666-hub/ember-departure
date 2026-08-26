@@ -20,6 +20,8 @@ const LIGHT_RAMP := 12.0
 
 var _cfg := {}
 var _item: HandheldItem
+var _custom_anchor_0: Node3D = null
+var _custom_anchor_1: Node3D = null
 var _mesh: ImmediateMesh
 var _material: StandardMaterial3D
 var _spark_material: StandardMaterial3D
@@ -121,6 +123,8 @@ func set_config(cfg: Dictionary) -> void:
 ## Pre: item.initialize() has run. Post: trail_anchor(0/1) exist on the blade.
 func bind(item: HandheldItem) -> void:
 	_item = item
+	_custom_anchor_0 = null
+	_custom_anchor_1 = null
 	_broken = true
 	_last_tip = Vector3(INF, INF, INF)
 	_since_sample = 0.0
@@ -128,6 +132,16 @@ func bind(item: HandheldItem) -> void:
 		return
 	item.set_trail_anchors(float(_cfg.base), float(_cfg.tip))
 	_mount_emitters()
+
+
+## Direct anchor binding without requiring a HandheldItem instance (e.g. for character feet/limbs).
+func bind_anchors(near_node: Node3D, far_node: Node3D) -> void:
+	_item = null
+	_custom_anchor_0 = near_node
+	_custom_anchor_1 = far_node
+	_broken = true
+	_last_tip = Vector3(INF, INF, INF)
+	_since_sample = 0.0
 
 
 ## Starts laying down samples. Post: the next sample begins a new stroke, and is
@@ -218,12 +232,17 @@ func _update_ghosts(delta: float) -> void:
 ## whenever the stroke was interrupted rather than merely under-sampled.
 func _track(delta: float) -> void:
 	_since_sample += delta
-	if _item == null or not is_instance_valid(_item):
-		_broken = true
-		return
-	var near_node := _item.trail_anchor(0)
-	var far_node := _item.trail_anchor(1)
+	var near_node: Node3D = _custom_anchor_0
+	var far_node: Node3D = _custom_anchor_1
+
 	if near_node == null or far_node == null:
+		if _item == null or not is_instance_valid(_item):
+			_broken = true
+			return
+		near_node = _item.trail_anchor(0)
+		far_node = _item.trail_anchor(1)
+
+	if near_node == null or far_node == null or not is_instance_valid(near_node) or not is_instance_valid(far_node):
 		_broken = true
 		return
 

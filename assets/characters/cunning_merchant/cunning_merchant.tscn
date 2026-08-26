@@ -1,10 +1,10 @@
 [gd_scene format=3 uid="uid://4n5x7rboet34"]
 
 [ext_resource type="Script" uid="uid://ch0rg3stebnja" path="res://scripts/character.gd" id="1_ublyn"]
-[ext_resource type="AnimationLibrary" uid="uid://di7yhhs8xw5mu" path="res://assets/animations/shared_animations.tres" id="2_8i5si"]
+[ext_resource type="AnimationLibrary" uid="uid://dju2rv8spr4dr" path="res://assets/animations/shared_animations.tres" id="2_8i5si"]
 [ext_resource type="PackedScene" uid="uid://b34etsigeg8o3" path="res://assets/characters/cunning_merchant/merchant.fbx" id="3_ws1qj"]
 
-[node name="CunningMerchant" type="Node3D" unique_id=358309596]
+[node name="CunningMerchant" type="Node3D" unique_id=350104242]
 script = ExtResource("1_ublyn")
 character_id = "cunning_merchant"
 body_height = 1.75

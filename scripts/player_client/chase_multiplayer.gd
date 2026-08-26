@@ -21,6 +21,8 @@ const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const WorldBuilderScript = preload("res://scripts/world/world_builder.gd")
 const ENV_PRESET = preload("res://config/env/chase_dusk.tres")
 const GROUND_PRESET = preload("res://config/ground/chase_grid.tres")
+const HudKitScript = preload("res://scripts/ui/hud_kit.gd")
+const CommanderCamScript = preload("res://scripts/world/commander_cam.gd")
 
 const LOBBY_SCENE := "res://scenes/player_client/multiplayer_lobby.tscn"
 const TITLE_SCENE := "res://scenes/player_client/title_screen.tscn"
@@ -28,9 +30,11 @@ const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 
 const GROUND_HALF := 25.0
 const MAX_BLOCK_Y := 12
-const ESCAPE_COUNTDOWN_TIME := 15.0
-const CHASE_TIME_LIMIT := 120.0
-const CATCH_DISTANCE_THRESHOLD := 1.5
+## Difficulty knobs: edit config/chase/*.tres, not here. Mirrors keep every usage below unchanged.
+const CHASE_PROFILE: ChaseProfile = preload("res://config/chase/standard.tres")
+var ESCAPE_COUNTDOWN_TIME: float = CHASE_PROFILE.escape_countdown
+var CHASE_TIME_LIMIT: float = CHASE_PROFILE.chase_time_limit
+var CATCH_DISTANCE_THRESHOLD: float = CHASE_PROFILE.catch_distance
 const SNAPSHOT_INTERVAL := 0.033 # 30Hz
 
 enum State {
@@ -40,7 +44,7 @@ enum State {
 }
 
 var _state: State = State.PREPARE_COUNTDOWN
-var _escape_timer := ESCAPE_COUNTDOWN_TIME
+var _escape_timer: float = ESCAPE_COUNTDOWN_TIME
 var _survival_time := 0.0
 var _last_countdown_voice := -1
 var _snapshot_timer := 0.0
@@ -392,6 +396,7 @@ func _reset_match_positions() -> void:
 ## players never open with the same skill; a peerless scene rolls locally for debugging.
 func _setup_skill_draw() -> void:
 	SkillRegistryScript.init_registry()
+	SkillRegistryScript.reset_all_state()
 	SkillRegistryScript.warmup_all_shaders(self)
 
 	_skill_loadout = SkillLoadoutScript.new()
@@ -556,19 +561,8 @@ func _build_visual_helpers() -> void:
 
 
 func _build_camera() -> void:
-	_camera = FollowCameraScript.new()
-	_camera.fov = 55.0
-	_camera.near = 0.1
-	_camera.far = 400.0
-	_camera.current = true
-	add_child(_camera)
-
-	_commander_camera = Camera3D.new()
-	_commander_camera.fov = 60.0
-	_commander_camera.near = 0.15
-	_commander_camera.far = 400.0
-	_commander_camera.current = false
-	add_child(_commander_camera)
+	_camera = CommanderCamScript.build_follow(self)
+	_commander_camera = CommanderCamScript.build_commander(self)
 
 
 func _build_characters() -> void:
@@ -721,59 +715,14 @@ func _apply_commander_cam_orientation() -> void:
 
 
 func _drive_commander_camera(delta: float) -> void:
-	if _commander_camera == null:
-		return
-	var wish := Vector3.ZERO
-	var cam_basis := _commander_camera.global_basis
-	if Input.is_physical_key_pressed(KEY_W):
-		wish -= cam_basis.z
-	if Input.is_physical_key_pressed(KEY_S):
-		wish += cam_basis.z
-	if Input.is_physical_key_pressed(KEY_A):
-		wish -= cam_basis.x
-	if Input.is_physical_key_pressed(KEY_D):
-		wish += cam_basis.x
-	if Input.is_physical_key_pressed(KEY_SPACE):
-		wish += Vector3.UP
-	if Input.is_physical_key_pressed(KEY_CTRL):
-		wish -= Vector3.UP
-	if wish != Vector3.ZERO:
-		var pace: float = _fly_speed * (2.5 if Input.is_key_pressed(KEY_SHIFT) else 1.0)
-		wish = wish.normalized() * pace
-
-	_cam_velocity = _cam_velocity.lerp(wish, 1.0 - exp(-delta * 12.0))
-	_commander_camera.global_position += _cam_velocity * delta
+	_cam_velocity = CommanderCamScript.drive(_commander_camera, _cam_velocity, _fly_speed, delta)
 
 
 func _cast_crosshair() -> void:
-	if _commander_camera == null or not _commander_camera.current:
-		_has_aim = false
-		if _highlight != null:
-			_highlight.visible = false
-		return
-
-	var space := get_world_3d().direct_space_state
-	var origin := _commander_camera.global_position
-	var forward := -_commander_camera.global_basis.z
-	var query := PhysicsRayQueryParameters3D.create(origin, origin + forward * 60.0)
-	query.collide_with_areas = false
-	var hit := space.intersect_ray(query)
-
-	if hit.is_empty():
-		_has_aim = false
-		if _highlight != null:
-			_highlight.visible = false
-		return
-
-	_has_aim = true
-	var hit_pos: Vector3 = hit.position
-	var normal: Vector3 = hit.normal
-	_aim_point = hit_pos
-	var inward := hit_pos - normal * 0.01
-	_aim_cell = Vector3i(int(floor(inward.x)), int(floor(inward.y)), int(floor(inward.z)))
-	if _highlight != null:
-		_highlight.global_position = Vector3(_aim_cell)
-		_highlight.visible = true
+	var r := CommanderCamScript.cast_crosshair(_commander_camera, get_world_3d(), _highlight)
+	_has_aim = r.has_aim
+	_aim_point = r.point
+	_aim_cell = r.cell
 
 
 func _make_wire_cube() -> MeshInstance3D:
@@ -1343,17 +1292,4 @@ func _on_exit_to_lobby() -> void:
 
 
 func _create_9patch_style(texture_path: String, ml: float, mt: float, mr: float, mb: float, cl: float = 16.0, ct: float = 14.0, cr: float = 16.0, cb: float = 14.0) -> StyleBoxTexture:
-	var sbox := StyleBoxTexture.new()
-	if ResourceLoader.exists(texture_path):
-		sbox.texture = load(texture_path)
-	sbox.texture_margin_left = ml
-	sbox.texture_margin_top = mt
-	sbox.texture_margin_right = mr
-	sbox.texture_margin_bottom = mb
-	sbox.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_STRETCH
-	sbox.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_STRETCH
-	sbox.content_margin_left = cl
-	sbox.content_margin_top = ct
-	sbox.content_margin_right = cr
-	sbox.content_margin_bottom = cb
-	return sbox
+	return HudKitScript.nine_patch(texture_path, ml, mt, mr, mb, cl, ct, cr, cb)

@@ -16,6 +16,7 @@ const MAIN_GATEWAY_SCENE := "res://scenes/main_menu.tscn"
 const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 const FONT_GLITCH_PATH := "res://assets/Fonts/Long_Cang,Rubik_Glitch/Rubik_Glitch/RubikGlitch-Regular.ttf"
 const KeybindRemapPanelScript = preload("res://scripts/keybind_remap_panel.gd")
+const SettingsDialogScript = preload("res://scripts/settings_dialog.gd")
 const ProfileManagerScript = preload("res://scripts/profile_manager.gd")
 
 var _custom_font: Font = null
@@ -25,6 +26,7 @@ var _workshop_ask_dialog: PanelContainer
 var _trial_ask_dialog: PanelContainer
 var _profile_dialog: PanelContainer
 var _keybind_dialog: Control = null
+var _settings_dialog: Control = null
 var _map_list: ItemList
 
 var _profile_card: Button
@@ -66,6 +68,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
 			get_viewport().set_input_as_handled()
+			if _settings_dialog != null and _settings_dialog.visible:
+				_settings_dialog.visible = false
+				return
 			if _keybind_dialog != null and _keybind_dialog.visible:
 				_keybind_dialog.visible = false
 				return
@@ -150,6 +155,7 @@ func _build_ui() -> void:
 	# Embedded Profile Card in Left Column
 	_build_left_profile_card(left_col)
 	_build_keybind_entry_button(left_col)
+	_build_settings_entry_button(left_col)
 
 	# Right Column: Action Buttons
 	var right_col := VBoxContainer.new()
@@ -215,6 +221,7 @@ func _build_ui() -> void:
 	_build_workshop_ask_dialog()
 	_build_trial_ask_dialog()
 	_build_keybind_dialog()
+	_build_settings_dialog()
 
 
 func _create_menu_button(zh_text: String, en_text: String, icon_path: String, accent_color: Color) -> Button:
@@ -930,6 +937,47 @@ func _build_keybind_dialog() -> void:
 func _open_keybind_dialog() -> void:
 	if _keybind_dialog != null:
 		_keybind_dialog.visible = true
+
+
+func _build_settings_entry_button(parent_col: VBoxContainer) -> void:
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(380, 44)
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.10, 0.15, 0.90)
+	style.set_corner_radius_all(10)
+	style.set_border_width_all(1)
+	style.border_color = Color(0.85, 0.58, 0.20, 0.7)
+	style.set_content_margin_all(8)
+	btn.add_theme_stylebox_override("normal", style)
+	btn.add_theme_stylebox_override("hover", style)
+	btn.text = "⚙️ 画质与系统设置 (Game & Graphics Settings)"
+	if _custom_font != null:
+		btn.add_theme_font_override("font", _custom_font)
+	btn.add_theme_font_size_override("font_size", 14)
+	btn.modulate = Color(1.0, 0.88, 0.45)
+	btn.pressed.connect(_open_settings_dialog)
+	parent_col.add_child(btn)
+
+
+func _build_settings_dialog() -> void:
+	var dlg_canvas := CanvasLayer.new()
+	dlg_canvas.layer = 25
+	add_child(dlg_canvas)
+
+	_settings_dialog = SettingsDialogScript.new()
+	_settings_dialog.set_anchors_preset(PRESET_CENTER)
+	_settings_dialog.offset_left = -360
+	_settings_dialog.offset_right = 360
+	_settings_dialog.offset_top = -310
+	_settings_dialog.offset_bottom = 310
+	_settings_dialog.visible = false
+	_settings_dialog.closed.connect(func(): _settings_dialog.visible = false)
+	dlg_canvas.add_child(_settings_dialog)
+
+
+func _open_settings_dialog() -> void:
+	if _settings_dialog != null:
+		_settings_dialog.visible = true
 
 
 func _pm():

@@ -91,7 +91,7 @@ func cast(space: PhysicsDirectSpaceState3D, from: Vector3, to: Vector3) -> Dicti
 
 
 func capsule_radius() -> float:
-	var capsule: CollisionShape3D = _body._capsule
+	var capsule: CollisionShape3D = _body._capsule if is_instance_valid(_body._capsule) else null
 	if capsule == null:
 		return 0.3
 	var shape := capsule.shape as CapsuleShape3D

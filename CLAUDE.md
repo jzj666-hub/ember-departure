@@ -1,16 +1,23 @@
 # CLAUDE.md
 
-## Before Writing Any New Code (mandatory)
+## Codebase Navigation
 
-Read `CODEMAP.md` first — it indexes every script: path, lines, `class_name`, fan-in/fan-out, one-line responsibility.
+Do NOT bulk-read index files. Grep on demand — every script opens with a `##` docstring stating its
+responsibility, so search finds it. Every new script MUST open with such a line; it is the search hook.
 
-- Search it for the capability you are about to build. If it exists, reuse it. Do not re-implement.
-- 「重复实现警告」 table = functions already copy-pasted 3+ times with no inheritance relation. Adding copy N+1 is an error; extract a shared implementation instead.
-- 「高扇入服务层」 = load-bearing public signatures. Read the dependent list before changing one.
-- Every new script MUST open with a `##` docstring line. That line is its CODEMAP entry; without it the script is invisible to search.
+Recipes (ripgrep):
+- capability by keyword: `rg -n "^##.*<keyword>" scripts/`
+- list all responsibilities in a subtree: `rg -n "^##" scripts/<dir>/`
+- fan-in of a type: `rg -n "\b<ClassName>\b" scripts/` or `rg -n "<script_path>" scripts/`
+- existing impls of a function: `rg -n "func <name>" scripts/`
 
-Regenerate after adding/removing/renaming scripts:
-`godot --headless --path . --script res://tools/gen_codemap.gd`
+Before adding a helper that sounds generic (`_build_hud`, `_build_ui`, `_make_wire_cube`,
+`_spawn_character`, `setup`, `reset`, …), grep `func <name>` first — several already exist in
+multiple copies. Reuse or ask; do not add copy N+1.
+
+`CODEMAP.md` is an on-demand generated report (full script table, duplicate-impl counts, fan-in
+ranking), NOT required reading. Consult it only when a broad structural question needs it.
+Regenerate manually when wanted: `godot --headless --path . --script res://tools/gen_codemap.gd`
 
 ## Comment & Doc Style (mandatory, all files)
 

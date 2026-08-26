@@ -9,6 +9,8 @@ const FollowCameraScript = preload("res://scripts/follow_camera.gd")
 const SkillRegistryScript = preload("res://scripts/skills/skill_registry.gd")
 const SkillStealthScript = preload("res://scripts/skills/skill_stealth.gd")
 const SkillCloneScript = preload("res://scripts/skills/skill_clone.gd")
+const EquipmentManagerScript = preload("res://scripts/equipment_manager.gd")
+const WeaponConfigScript = preload("res://scripts/weapon_config.gd")
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const MainMenuScript = preload("res://scripts/main_menu.gd")
 
@@ -126,9 +128,46 @@ var _is_immersive: bool = false
 var _sub_header_lbl: Label
 var _mode_badge_lbl: Label
 var _char_picker: OptionButton
+var _weapon_picker: OptionButton
 var _switch_target_btn: Button
 var _custom_font: Font = null
 var _glitch_font: Font = null
+
+# Equipment & Weapons
+var _player_equip: EquipmentManager
+var _dummy_equip: EquipmentManager
+var _current_weapon_id: String = ""
+var _configured_weapons: Array[String] = []
+
+# --- Health Bar & Combat System (PVP Emulation) ---
+var _player_max_hp: float = 1000.0
+var _player_hp: float = 1000.0
+var _dummy_max_hp: float = 1000.0
+var _dummy_hp: float = 1000.0
+
+var _health_hud: PanelContainer
+var _player_hp_bar: ProgressBar
+var _player_hp_lbl: Label
+var _dummy_hp_bar: ProgressBar
+var _dummy_hp_lbl: Label
+
+# Blade & Melee Hit Check Tracking
+const BLADE_PAD := 0.20
+const HURT_RADIUS := 0.40
+const HURT_LOW_Y := 0.20
+const HURT_HIGH_Y := 1.65
+var _player_prev_tip: Vector3 = Vector3.ZERO
+var _player_has_tip: bool = false
+var _player_blade_inside: bool = false
+var _dummy_prev_tip: Vector3 = Vector3.ZERO
+var _dummy_has_tip: bool = false
+var _dummy_blade_inside: bool = false
+
+# Floating Damage Number Pool
+const VFX_POOL := 20
+var _numbers: Array[Label3D] = []
+var _number_tweens: Array[Tween] = []
+var _number_next: int = 0
 
 # Left Sidebar (Candidate List) & Right Sidebar (Config)
 var _left_sidebar: PanelContainer
@@ -181,6 +220,7 @@ var _ground_mat: StandardMaterial3D
 func _ready() -> void:
 	AudioManagerScript.init_pool(self)
 	SkillRegistryScript.init_registry()
+	SkillRegistryScript.reset_all_state()
 	SkillRegistryScript.warmup_all_shaders(self)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Engine.time_scale = 1.0
@@ -193,7 +233,9 @@ func _ready() -> void:
 	if ResourceLoader.exists(FONT_GLITCH_PATH):
 		_glitch_font = load(FONT_GLITCH_PATH) as Font
 
+	_load_configured_weapons()
 	_build_scene_environment()
+	_build_damage_number_pool()
 	_build_builder_camera()
 	_build_player()
 	_build_dummy()
@@ -202,7 +244,16 @@ func _ready() -> void:
 	_set_lab_mode(LabMode.PLAYER_CONTROL)
 	AudioManagerScript.play_voice_file("res://assets/voice/Voiceover Pack/Male/prepare.ogg", 0.0)
 
+
+func _load_configured_weapons() -> void:
+	_configured_weapons.clear()
+	var raw_list := WeaponConfigScript.list_configured()
+	for id in raw_list:
+		if WeaponConfigScript.has_config(id) and WeaponConfigScript.mesh_scene_for(id) != null:
+			_configured_weapons.append(id)
+
 func _process(delta: float) -> void:
+	_check_blade_hits()
 	if _aiming:
 		_update_aim()
 	if _mode == LabMode.GLOBAL_SPECTATE:
@@ -262,6 +313,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				vp.set_input_as_handled()
 			_cycle_sky_panorama()
 			return
+		elif event.keycode == KEY_F5: # Restore / Reset HP (Heal All)
+			var vp := get_viewport()
+			if vp != null:
+				vp.set_input_as_handled()
+			_heal_all_full()
+			return
 		elif event.keycode == KEY_Q:
 			var vp := get_viewport()
 			if vp != null:
@@ -310,6 +367,22 @@ func _unhandled_input(event: InputEvent) -> void:
 			var all_skills: Array = SkillRegistryScript.get_all_skills()
 			if all_skills.size() >= 12:
 				_select_skill(all_skills[11].call("get_id"))
+			return
+		elif event.keycode == KEY_BRACKETLEFT or event.keycode == KEY_BACKSPACE:
+			var vp := get_viewport()
+			if vp != null:
+				vp.set_input_as_handled()
+			var all_skills: Array = SkillRegistryScript.get_all_skills()
+			if all_skills.size() >= 13:
+				_select_skill(all_skills[12].call("get_id"))
+			return
+		elif event.keycode == KEY_BRACKETRIGHT:
+			var vp := get_viewport()
+			if vp != null:
+				vp.set_input_as_handled()
+			var all_skills: Array = SkillRegistryScript.get_all_skills()
+			if all_skills.size() >= 14:
+				_select_skill(all_skills[13].call("get_id"))
 			return
 		elif event.keycode == KEY_QUOTELEFT: # Tilde to toggle mouse
 			var vp := get_viewport()
@@ -364,20 +437,23 @@ func _toggle_control_target() -> void:
 	_sync_character_picker_selection()
 
 func _update_target_labels() -> void:
+	var p_bar_str := _generate_ascii_hp_bar(_player_hp, _player_max_hp)
+	var d_bar_str := _generate_ascii_hp_bar(_dummy_hp, _dummy_max_hp)
+
 	if _player_tag_lbl != null:
 		if _control_target == ControlTarget.PLAYER:
-			_player_tag_lbl.text = "🕹️ 主角色 (操控中)"
+			_player_tag_lbl.text = "🕹️ 主角色 (操控中)\n%s %d/%d" % [p_bar_str, int(_player_hp), int(_player_max_hp)]
 			_player_tag_lbl.modulate = Color(0.3, 0.95, 1.0)
 		else:
-			_player_tag_lbl.text = "👤 主角色 [按 F2 切回]"
+			_player_tag_lbl.text = "👤 主角色 [按 F2 切回]\n%s %d/%d" % [p_bar_str, int(_player_hp), int(_player_max_hp)]
 			_player_tag_lbl.modulate = Color(0.7, 0.8, 0.9, 0.8)
 
 	if _dummy_tag_lbl != null:
 		if _control_target == ControlTarget.DUMMY:
-			_dummy_tag_lbl.text = "🎯 训练假人 (操控中)"
+			_dummy_tag_lbl.text = "🎯 训练假人 (操控中)\n%s %d/%d" % [d_bar_str, int(_dummy_hp), int(_dummy_max_hp)]
 			_dummy_tag_lbl.modulate = Color(1.0, 0.85, 0.2)
 		else:
-			_dummy_tag_lbl.text = "🎯 训练假人 [按 F2 操控]"
+			_dummy_tag_lbl.text = "🎯 训练假人 [按 F2 操控]\n%s %d/%d" % [d_bar_str, int(_dummy_hp), int(_dummy_max_hp)]
 			_dummy_tag_lbl.modulate = Color(1.0, 0.6, 0.2, 0.8)
 
 	if _switch_target_btn != null:
@@ -387,6 +463,19 @@ func _update_target_labels() -> void:
 		else:
 			_switch_target_btn.text = "🔄 当前操控: 【假人】 (按 F2 切回玩家)"
 			_switch_target_btn.modulate = Color(1.0, 0.85, 0.3)
+
+
+func _generate_ascii_hp_bar(cur: float, max_v: float) -> String:
+	var ratio := clampf(cur / maxf(1.0, max_v), 0.0, 1.0)
+	var filled := int(round(ratio * 10.0))
+	var s := "["
+	for i in range(10):
+		if i < filled:
+			s += "█"
+		else:
+			s += "░"
+	s += "]"
+	return s
 
 func _get_active_actor() -> PlayerControllerScript:
 	if _control_target == ControlTarget.DUMMY and _dummy_player != null and is_instance_valid(_dummy_player):
@@ -603,7 +692,7 @@ func _cast_current_skill() -> void:
 # --- Ground-targeted skills aim & cast ---
 
 func _skill_supports_aim(id: String) -> bool:
-	return id == "sand" or id == "wall"
+	return id == "sand" or id == "wall" or id == "sword_rain" or id == "skyfire" or id == "hammer_beam" or id == "glass_shatter"
 
 
 func _begin_aim() -> void:
@@ -616,7 +705,8 @@ func _update_aim() -> void:
 	if _aim_cursor == null or not is_instance_valid(_aim_cursor):
 		return
 	var skill: RefCounted = SkillRegistryScript.get_skill(_current_skill_id)
-	var cast_r: float = float(skill.get("cast_range")) if skill != null else 16.0
+	var raw_cast_r = skill.get("cast_range") if skill != null else null
+	var cast_r: float = float(raw_cast_r) if raw_cast_r != null else 16.0
 
 	var actor := _get_active_actor()
 	var aim := _ground_aim_point(actor)
@@ -632,10 +722,26 @@ func _update_aim() -> void:
 
 	match _current_skill_id:
 		"sand":
-			var skill_r: float = float(skill.get("sand_radius")) if skill != null else 4.0
+			var raw_val = skill.get("sand_radius") if skill != null else null
+			var skill_r: float = float(raw_val) if raw_val != null else 4.0
 			_aim_cursor.scale = Vector3(skill_r, 1.0, skill_r)
+		"sword_rain":
+			var raw_val = skill.get("strike_radius") if skill != null else null
+			var skill_r: float = float(raw_val) if raw_val != null else 4.8
+			_aim_cursor.scale = Vector3(skill_r, 1.0, skill_r)
+		"skyfire":
+			var raw_val = skill.get("strike_radius") if skill != null else null
+			var skill_r: float = float(raw_val) if raw_val != null else 4.5
+			_aim_cursor.scale = Vector3(skill_r, 1.0, skill_r)
+		"hammer_beam":
+			var raw_val = skill.get("beam_radius") if skill != null else null
+			var beam_r: float = float(raw_val) if raw_val != null else 1.1
+			_aim_cursor.scale = Vector3(beam_r * 2.6, 1.0, beam_r * 2.6)
+		"glass_shatter":
+			_aim_cursor.scale = Vector3(2.5, 1.0, 2.5)
 		"wall":
-			var wall_len: float = float(skill.get("wall_length")) if skill != null else 6.0
+			var raw_val = skill.get("wall_length") if skill != null else null
+			var wall_len: float = float(raw_val) if raw_val != null else 6.0
 			var aim_dir := aim - from
 			aim_dir.y = 0.0
 			if aim_dir.length_squared() < 0.001:
@@ -898,6 +1004,10 @@ func _build_player() -> void:
 	_player.intent_source = _intent
 	add_child(_player)
 
+	_player.set_meta("take_hit_cb", func(hit_pos: Vector3, dmg: float, push: Vector3):
+		_on_actor_hit(true, hit_pos, dmg, push)
+	)
+
 	_camera = FollowCameraScript.new()
 	_camera.name = "Camera"
 	_camera.fov = 55.0
@@ -909,10 +1019,10 @@ func _build_player() -> void:
 
 	_player_tag_lbl = Label3D.new()
 	_player_tag_lbl.name = "PlayerTag"
-	_player_tag_lbl.position = Vector3(0.0, 2.15, 0.0)
+	_player_tag_lbl.position = Vector3(0.0, 2.25, 0.0)
 	_player_tag_lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_player_tag_lbl.no_depth_test = true
-	_player_tag_lbl.font_size = 24
+	_player_tag_lbl.font_size = 22
 	_player_tag_lbl.outline_size = 6
 	_player_tag_lbl.outline_modulate = Color.BLACK
 	_player.add_child(_player_tag_lbl)
@@ -925,14 +1035,18 @@ func _build_dummy() -> void:
 	_dummy_player.intent_source = _idle_intent
 	add_child(_dummy_player)
 
+	_dummy_player.set_meta("take_hit_cb", func(hit_pos: Vector3, dmg: float, push: Vector3):
+		_on_actor_hit(false, hit_pos, dmg, push)
+	)
+
 	_setup_character_actor(_dummy_player, _dummy_hero_id, true)
 
 	_dummy_tag_lbl = Label3D.new()
 	_dummy_tag_lbl.name = "DummyTag"
-	_dummy_tag_lbl.position = Vector3(0.0, 2.15, 0.0)
+	_dummy_tag_lbl.position = Vector3(0.0, 2.25, 0.0)
 	_dummy_tag_lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_dummy_tag_lbl.no_depth_test = true
-	_dummy_tag_lbl.font_size = 24
+	_dummy_tag_lbl.font_size = 22
 	_dummy_tag_lbl.outline_size = 6
 	_dummy_tag_lbl.outline_modulate = Color.BLACK
 	_dummy_player.add_child(_dummy_tag_lbl)
@@ -954,6 +1068,22 @@ func _setup_character_actor(body: PlayerControllerScript, hero_id: String, is_du
 	if body == null or not is_instance_valid(body):
 		return
 	body.set_meta("hero_id", hero_id)
+
+	# 挂载 / 保留 EquipmentManager 装备组件
+	var equip: EquipmentManager = null
+	for child in body.get_children():
+		if child is EquipmentManager:
+			equip = child
+			break
+	if equip == null:
+		equip = EquipmentManagerScript.new()
+		equip.name = "EquipManager"
+		body.add_child(equip)
+
+	if is_dummy:
+		_dummy_equip = equip
+	else:
+		_player_equip = equip
 
 	for child in body.get_children():
 		if child is Node3D and child.name != "DummyTag" and child.name != "PlayerTag":
@@ -990,6 +1120,13 @@ func _setup_character_actor(body: PlayerControllerScript, hero_id: String, is_du
 			body.velocity = Vector3.ZERO
 			body.setup(visual, _camera)
 
+			# 重新装备当前选中的武器
+			if not _current_weapon_id.is_empty():
+				equip.equip_by_id(_current_weapon_id)
+			else:
+				equip.unequip("right_hand")
+				equip.unequip("left_hand")
+
 			# Ensure proper intent source assignment
 			if is_dummy and _control_target != ControlTarget.DUMMY:
 				body.intent_source = _idle_intent
@@ -1021,6 +1158,32 @@ func _sync_character_picker_selection() -> void:
 			_char_picker.select(idx)
 			break
 
+
+func _switch_weapon(weapon_id: String) -> void:
+	_current_weapon_id = weapon_id
+	if _player_equip != null:
+		if weapon_id.is_empty():
+			_player_equip.unequip("right_hand")
+			_player_equip.unequip("left_hand")
+		else:
+			_player_equip.equip_by_id(weapon_id)
+	if _dummy_equip != null:
+		if weapon_id.is_empty():
+			_dummy_equip.unequip("right_hand")
+			_dummy_equip.unequip("left_hand")
+		else:
+			_dummy_equip.equip_by_id(weapon_id)
+	_sync_weapon_picker_selection()
+
+
+func _sync_weapon_picker_selection() -> void:
+	if _weapon_picker == null:
+		return
+	for idx in range(_weapon_picker.item_count):
+		if str(_weapon_picker.get_item_metadata(idx)) == _current_weapon_id:
+			_weapon_picker.select(idx)
+			break
+
 func _build_ui() -> void:
 	_canvas = CanvasLayer.new()
 	_canvas.layer = 20
@@ -1032,6 +1195,7 @@ func _build_ui() -> void:
 	_canvas.add_child(_ui_root)
 
 	_build_header(_ui_root)
+	_build_health_hud(_ui_root)
 	_build_left_sidebar(_ui_root)
 	_build_right_sidebar(_ui_root)
 
@@ -1242,6 +1406,34 @@ func _build_right_sidebar(root: Control) -> void:
 	char_row.add_child(_char_picker)
 	_sync_character_picker_selection()
 
+	# --- 3.5. 当前手持神兵切换 ---
+	var weapon_row := HBoxContainer.new()
+	weapon_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(weapon_row)
+
+	var w_lbl := Label.new()
+	w_lbl.text = "手持神兵: "
+	w_lbl.add_theme_font_size_override("font_size", 13)
+	weapon_row.add_child(w_lbl)
+
+	_weapon_picker = OptionButton.new()
+	_weapon_picker.focus_mode = Control.FOCUS_NONE
+	_weapon_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_weapon_picker.add_item("🚫 空手 (无武器)")
+	_weapon_picker.set_item_metadata(0, "")
+
+	for i in range(_configured_weapons.size()):
+		var w_id := _configured_weapons[i]
+		_weapon_picker.add_item("🗡️ %s" % w_id)
+		_weapon_picker.set_item_metadata(i + 1, w_id)
+
+	_weapon_picker.item_selected.connect(func(idx: int):
+		var id_val = _weapon_picker.get_item_metadata(idx)
+		_switch_weapon(str(id_val) if id_val != null else "")
+	)
+	weapon_row.add_child(_weapon_picker)
+	_sync_weapon_picker_selection()
+
 	# --- 4. 慢放控制 ---
 	var slow_title := Label.new()
 	slow_title.text = "慢放调试控制 (Time Scale):"
@@ -1318,3 +1510,328 @@ func _select_skill(skill_id: String) -> void:
 		for child in _skill_panel_box.get_children():
 			child.queue_free()
 		skill.call("build_config_panel", _skill_panel_box, _on_skill_param_changed)
+
+
+# ============================================================
+# 顶部 PVP 风格血条 HUD 与战斗伤害系统
+# ============================================================
+
+func _build_health_hud(root: Control) -> void:
+	_health_hud = PanelContainer.new()
+	_health_hud.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_health_hud.offset_left = -340
+	_health_hud.offset_right = 340
+	_health_hud.offset_top = 16
+	_health_hud.offset_bottom = 82
+	_health_hud.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	var h_style := StyleBoxFlat.new()
+	h_style.bg_color = Color(0.05, 0.07, 0.11, 0.90)
+	h_style.set_corner_radius_all(8)
+	h_style.set_border_width_all(1)
+	h_style.border_color = Color(0.3, 0.8, 1.0, 0.6)
+	h_style.set_content_margin_all(10)
+	_health_hud.add_theme_stylebox_override("panel", h_style)
+	root.add_child(_health_hud)
+
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 16)
+	_health_hud.add_child(hbox)
+
+	# 1. 玩家血条区 (左侧)
+	var p_box := VBoxContainer.new()
+	p_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(p_box)
+
+	_player_hp_lbl = Label.new()
+	_player_hp_lbl.text = "⚔️ 玩家 HP: 1000 / 1000"
+	_player_hp_lbl.add_theme_font_size_override("font_size", 12)
+	_player_hp_lbl.modulate = Color(0.35, 0.95, 1.0)
+	p_box.add_child(_player_hp_lbl)
+
+	_player_hp_bar = ProgressBar.new()
+	_player_hp_bar.max_value = _player_max_hp
+	_player_hp_bar.value = _player_hp
+	_player_hp_bar.show_percentage = false
+	_player_hp_bar.custom_minimum_size = Vector2(0, 14)
+	var p_fill := StyleBoxFlat.new()
+	p_fill.bg_color = Color(0.15, 0.85, 0.75)
+	p_fill.set_corner_radius_all(3)
+	_player_hp_bar.add_theme_stylebox_override("fill", p_fill)
+	p_box.add_child(_player_hp_bar)
+
+	# 2. 中间 VS 与一键恢复按钮
+	var mid_box := VBoxContainer.new()
+	mid_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	hbox.add_child(mid_box)
+
+	var reset_hp_btn := Button.new()
+	reset_hp_btn.text = "❤️ 满血 [F5]"
+	reset_hp_btn.focus_mode = Control.FOCUS_NONE
+	reset_hp_btn.add_theme_font_size_override("font_size", 11)
+	reset_hp_btn.pressed.connect(_heal_all_full)
+	mid_box.add_child(reset_hp_btn)
+
+	# 3. 假人血条区 (右侧)
+	var d_box := VBoxContainer.new()
+	d_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hbox.add_child(d_box)
+
+	_dummy_hp_lbl = Label.new()
+	_dummy_hp_lbl.text = "🎯 假人 HP: 1000 / 1000"
+	_dummy_hp_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_dummy_hp_lbl.add_theme_font_size_override("font_size", 12)
+	_dummy_hp_lbl.modulate = Color(1.0, 0.80, 0.25)
+	d_box.add_child(_dummy_hp_lbl)
+
+	_dummy_hp_bar = ProgressBar.new()
+	_dummy_hp_bar.max_value = _dummy_max_hp
+	_dummy_hp_bar.value = _dummy_hp
+	_dummy_hp_bar.show_percentage = false
+	_dummy_hp_bar.custom_minimum_size = Vector2(0, 14)
+	var d_fill := StyleBoxFlat.new()
+	d_fill.bg_color = Color(0.95, 0.55, 0.15)
+	d_fill.set_corner_radius_all(3)
+	_dummy_hp_bar.add_theme_stylebox_override("fill", d_fill)
+	d_box.add_child(_dummy_hp_bar)
+
+	_update_health_ui()
+
+
+func _update_health_ui() -> void:
+	if _player_hp_bar != null:
+		_player_hp_bar.max_value = _player_max_hp
+		_player_hp_bar.value = _player_hp
+	if _player_hp_lbl != null:
+		_player_hp_lbl.text = "⚔️ 玩家 HP: %d / %d" % [int(_player_hp), int(_player_max_hp)]
+
+	if _dummy_hp_bar != null:
+		_dummy_hp_bar.max_value = _dummy_max_hp
+		_dummy_hp_bar.value = _dummy_hp
+	if _dummy_hp_lbl != null:
+		_dummy_hp_lbl.text = "🎯 假人 HP: %d / %d" % [int(_dummy_hp), int(_dummy_max_hp)]
+
+	_update_target_labels()
+
+
+func _heal_all_full() -> void:
+	_player_hp = _player_max_hp
+	_dummy_hp = _dummy_max_hp
+	if _player != null and is_instance_valid(_player):
+		_player.state = PlayerControllerScript.State.IDLE
+		var raw_ch: Variant = _player.get("character")
+		if raw_ch != null and is_instance_valid(raw_ch) and raw_ch.has_method("play"):
+			raw_ch.call("play", "idle_a", 0.1)
+	if _dummy_player != null and is_instance_valid(_dummy_player):
+		_dummy_player.state = PlayerControllerScript.State.IDLE
+		var raw_ch: Variant = _dummy_player.get("character")
+		if raw_ch != null and is_instance_valid(raw_ch) and raw_ch.has_method("play"):
+			raw_ch.call("play", "idle_a", 0.1)
+	_update_health_ui()
+
+
+func _build_damage_number_pool() -> void:
+	for i in range(VFX_POOL):
+		var lbl := Label3D.new()
+		lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		lbl.no_depth_test = true
+		lbl.font_size = 28
+		lbl.outline_size = 8
+		lbl.outline_modulate = Color.BLACK
+		lbl.visible = false
+		add_child(lbl)
+		_numbers.append(lbl)
+		_number_tweens.append(null)
+
+
+func _show_damage_floater(pos: Vector3, dmg: float) -> void:
+	if _numbers.is_empty():
+		return
+	var idx := _number_next
+	_number_next = (_number_next + 1) % VFX_POOL
+
+	if _number_tweens[idx] != null and _number_tweens[idx].is_valid():
+		_number_tweens[idx].kill()
+
+	var lbl := _numbers[idx]
+	lbl.text = "-%d HP" % int(dmg)
+	lbl.modulate = Color(1.0, 0.25, 0.25, 1.0) if dmg > 30.0 else Color(1.0, 0.85, 0.25, 1.0)
+	lbl.global_position = pos + Vector3(randf_range(-0.15, 0.15), 0.25, randf_range(-0.15, 0.15))
+	lbl.scale = Vector3(1.4, 1.4, 1.4)
+	lbl.visible = true
+
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(lbl, "global_position:y", lbl.global_position.y + 0.8, 0.75).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lbl, "scale", Vector3(1.0, 1.0, 1.0), 0.25).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.75).set_ease(Tween.EASE_IN)
+	tw.chain().tween_callback(func() -> void: lbl.visible = false)
+	_number_tweens[idx] = tw
+
+
+## 响应普攻挥砍或技能命中（仿 PVP 结算效果）
+func _on_actor_hit(is_player_target: bool, hit_pos: Vector3, damage: float, push_dir: Vector3 = Vector3.ZERO) -> void:
+	var target := _player if is_player_target else _dummy_player
+	if target == null or not is_instance_valid(target):
+		return
+
+	# 扣除生命值
+	if is_player_target:
+		_player_hp = maxf(0.0, _player_hp - damage)
+	else:
+		_dummy_hp = maxf(0.0, _dummy_hp - damage)
+
+	_update_health_ui()
+	_show_damage_floater(hit_pos, damage)
+	AudioManagerScript.play_hit_sound(0.0)
+
+	# 击退与受击受挫硬直
+	target.apply_hit_reaction("hit_chest", 0.35)
+	if push_dir.length_squared() > 0.01:
+		target.velocity += push_dir.normalized() * minf(damage * 0.12, 5.0)
+
+	# 受击火花特效
+	_spawn_hit_spark(hit_pos, push_dir)
+
+	# 死亡判定
+	var cur_hp := _player_hp if is_player_target else _dummy_hp
+	if cur_hp <= 0.0:
+		var raw_ch: Variant = target.get("character")
+		if raw_ch != null and is_instance_valid(raw_ch) and raw_ch.has_method("play"):
+			raw_ch.call("play", "death", 0.15)
+
+
+# --- 武器普攻与挥砍物理碰撞判定 (仿 PVP 判定) ---
+
+func _check_blade_hits() -> void:
+	if _player == null or _dummy_player == null:
+		return
+
+	# 1. 玩家普攻/挥砍判定击中假人
+	if _player.state == PlayerControllerScript.State.ATTACKING:
+		var p_item = _player_equip.equipped("right_hand") if _player_equip != null else null
+		var hit_info: Dictionary = {}
+		var swing_dir := Vector3.ZERO
+		if p_item != null:
+			var pts := _get_blade_points(p_item, _player)
+			var base: Vector3 = pts[0]
+			var tip: Vector3 = pts[1]
+			swing_dir = (tip - _player_prev_tip) if _player_has_tip else Vector3.ZERO
+			var last_tip: Vector3 = _player_prev_tip if _player_has_tip else tip
+			_player_prev_tip = tip
+			_player_has_tip = true
+
+			if _player.can_deal_damage():
+				hit_info = _segment_capsule_hit(base, tip, _dummy_player.global_transform, BLADE_PAD)
+				if hit_info.is_empty():
+					hit_info = _segment_capsule_hit(last_tip, tip, _dummy_player.global_transform, BLADE_PAD)
+		else:
+			# 徒手/空手近战普攻判定
+			if _player.can_deal_damage():
+				var fwd := -_player.global_transform.basis.z
+				var p_to_d := _dummy_player.global_position - _player.global_position
+				p_to_d.y = 0.0
+				if p_to_d.length() <= 2.2 and fwd.dot(p_to_d.normalized()) > 0.5:
+					hit_info = {"point": _dummy_player.global_position + Vector3(0, 1.1, 0), "normal": -fwd}
+
+		var inside: bool = not hit_info.is_empty()
+		if inside and not _player_blade_inside:
+			var dmg: float = 35.0
+			_on_actor_hit(false, hit_info.get("point", _dummy_player.global_position + Vector3.UP), dmg, swing_dir)
+			_player.register_weapon_hit()
+		_player_blade_inside = inside
+	else:
+		_player_has_tip = false
+		_player_blade_inside = false
+
+	# 2. 假人普攻/挥砍判定击中玩家
+	if _dummy_player.state == PlayerControllerScript.State.ATTACKING:
+		var d_item = _dummy_equip.equipped("right_hand") if _dummy_equip != null else null
+		var hit_info: Dictionary = {}
+		var swing_dir := Vector3.ZERO
+		if d_item != null:
+			var pts := _get_blade_points(d_item, _dummy_player)
+			var base: Vector3 = pts[0]
+			var tip: Vector3 = pts[1]
+			swing_dir = (tip - _dummy_prev_tip) if _dummy_has_tip else Vector3.ZERO
+			var last_tip: Vector3 = _dummy_prev_tip if _dummy_has_tip else tip
+			_dummy_prev_tip = tip
+			_dummy_has_tip = true
+
+			if _dummy_player.can_deal_damage():
+				hit_info = _segment_capsule_hit(base, tip, _player.global_transform, BLADE_PAD)
+				if hit_info.is_empty():
+					hit_info = _segment_capsule_hit(last_tip, tip, _player.global_transform, BLADE_PAD)
+		else:
+			if _dummy_player.can_deal_damage():
+				var fwd := -_dummy_player.global_transform.basis.z
+				var d_to_p := _player.global_position - _dummy_player.global_position
+				d_to_p.y = 0.0
+				if d_to_p.length() <= 2.2 and fwd.dot(d_to_p.normalized()) > 0.5:
+					hit_info = {"point": _player.global_position + Vector3(0, 1.1, 0), "normal": -fwd}
+
+		var inside: bool = not hit_info.is_empty()
+		if inside and not _dummy_blade_inside:
+			var dmg: float = 35.0
+			_on_actor_hit(true, hit_info.get("point", _player.global_position + Vector3.UP), dmg, swing_dir)
+			_dummy_player.register_weapon_hit()
+		_dummy_blade_inside = inside
+	else:
+		_dummy_has_tip = false
+		_dummy_blade_inside = false
+
+
+func _get_blade_points(item: Node, body: CharacterBody3D) -> Array[Vector3]:
+	if item != null and is_instance_valid(item):
+		if item.has_method("blade_base_global") and item.has_method("blade_tip_global"):
+			return [item.call("blade_base_global"), item.call("blade_tip_global")]
+		elif item.has_method("blade_base_world") and item.has_method("blade_tip_world"):
+			return [item.call("blade_base_world"), item.call("blade_tip_world")]
+	var fallback_base := body.global_position + Vector3(0.0, 1.1, 0.0)
+	var fallback_tip := fallback_base - body.global_transform.basis.z * 0.9
+	return [fallback_base, fallback_tip]
+
+
+func _segment_capsule_hit(a: Vector3, b: Vector3, body_xf: Transform3D, pad: float) -> Dictionary:
+	var lo := body_xf * Vector3(0.0, HURT_LOW_Y, 0.0)
+	var hi := body_xf * Vector3(0.0, HURT_HIGH_Y, 0.0)
+	var pts := Geometry3D.get_closest_points_between_segments(a, b, lo, hi)
+	var offset: Vector3 = pts[0] - pts[1]
+	var reach := HURT_RADIUS + maxf(pad, 0.0)
+	if offset.length_squared() > reach * reach:
+		return {}
+	var normal := offset.normalized() if offset.length_squared() > 1e-8 else -body_xf.basis.z
+	return {"point": pts[1] + normal * HURT_RADIUS, "normal": normal}
+
+
+func _spawn_hit_spark(pos: Vector3, push_dir: Vector3) -> void:
+	var root := Node3D.new()
+	add_child(root)
+	root.global_position = pos
+
+	for s in range(6):
+		var spark := MeshInstance3D.new()
+		var qm := QuadMesh.new()
+		qm.size = Vector2(0.06, 0.28)
+		spark.mesh = qm
+		spark.rotation = Vector3(randf_range(-PI, PI), randf_range(-PI, PI), randf_range(-PI, PI))
+		root.add_child(spark)
+
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = StandardMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = Color(2.5, 2.0, 0.8, 1.0)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		spark.material_override = mat
+
+		var spread := push_dir + Vector3(randf_range(-0.8, 0.8), randf_range(-0.3, 0.8), randf_range(-0.8, 0.8))
+		var end_p := spark.global_position + spread * randf_range(0.8, 1.8)
+
+		var tw := spark.create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(spark, "global_position", end_p, 0.22).set_ease(Tween.EASE_OUT)
+		tw.tween_property(mat, "albedo_color:a", 0.0, 0.22).set_ease(Tween.EASE_IN)
+		tw.chain().tween_callback(spark.queue_free)
+
+	var clean_tw := root.create_tween()
+	clean_tw.tween_interval(0.3)
+	clean_tw.tween_callback(root.queue_free)

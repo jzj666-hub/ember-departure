@@ -43,6 +43,13 @@ func get_warmup_materials() -> Array:
 func dispel_actor(_actor: CharacterBody3D) -> void:
 	pass
 
+## Drops this skill's cross-scene static state: active buff/debuff registries and dangling
+## effect-node references. Asset caches (meshes, materials, loaded scenes) are deliberately kept.
+## Pre: SCENE ENTRY ONLY. This discards bookkeeping, it does not undo effects on live actors —
+## calling it mid-scene strands anything currently frozen/blinded/bound.
+func reset_state() -> void:
+	pass
+
 ## Builds the dedicated tuning UI widgets into the inspector container.
 func build_config_panel(_container: VBoxContainer, _on_changed: Callable) -> void:
 	pass

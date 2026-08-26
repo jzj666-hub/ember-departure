@@ -9,6 +9,7 @@ const FONT_PATH := "res://assets/Fonts/Long_Cang/LongCang-Regular.ttf"
 const FONT_GLITCH_PATH := "res://assets/Fonts/Long_Cang,Rubik_Glitch/Rubik_Glitch/RubikGlitch-Regular.ttf"
 const MapDataScript = preload("res://scripts/map_data.gd")
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const HudKitScript = preload("res://scripts/ui/hud_kit.gd")
 
 var _custom_font: Font = null
 var _glitch_font: Font = null
@@ -856,17 +857,4 @@ func _process(delta: float) -> void:
 
 
 func _create_9patch_style(texture_path: String, ml: float, mt: float, mr: float, mb: float, cl: float = 16.0, ct: float = 14.0, cr: float = 16.0, cb: float = 14.0) -> StyleBoxTexture:
-	var sbox := StyleBoxTexture.new()
-	if ResourceLoader.exists(texture_path):
-		sbox.texture = load(texture_path)
-	sbox.texture_margin_left = ml
-	sbox.texture_margin_top = mt
-	sbox.texture_margin_right = mr
-	sbox.texture_margin_bottom = mb
-	sbox.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_STRETCH
-	sbox.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_STRETCH
-	sbox.content_margin_left = cl
-	sbox.content_margin_top = ct
-	sbox.content_margin_right = cr
-	sbox.content_margin_bottom = cb
-	return sbox
+	return HudKitScript.nine_patch(texture_path, ml, mt, mr, mb, cl, ct, cr, cb)

@@ -1,7 +1,7 @@
 extends "res://scripts/skills/skill_base.gd"
-## Stealth / Optical Camouflage Skill.
-## Self View: Translucent holographic camouflage mesh, shadow removed.
-## External/Opponent View (Other Player or Spectator): Absolute invisibility (0% opacity, 0 shadows, no meshes).
+## 光学迷彩·多点消融潜行 (Multi-Point Dissolve Optical Stealth).
+## 隐身与显形过程由模型多个中心平滑残破消融与全息重构呈现，
+## 彻底去除生硬方块粒子；自身视角呈现清爽半透明全息轮廓，外界视角绝对隐形。
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
 const StealthCamoShader = preload("res://shaders/stealth_camo.gdshader")
@@ -16,10 +16,10 @@ func get_id() -> String:
 	return "stealth"
 
 func get_name() -> String:
-	return "👻 隐身 (光学迷彩潜行)"
+	return "👻 隐身 (多点消融潜行)"
 
 func get_title() -> String:
-	return "👻 隐身配置 (OPTICAL STEALTH)"
+	return "👻 隐身配置 (DISSOLVE OPTICAL STEALTH)"
 
 func get_params() -> Dictionary:
 	return {
@@ -58,7 +58,6 @@ func get_replay_hold_time(_record: Dictionary) -> float:
 	return maxf(duration, 1.8)
 
 func build_config_panel(container: VBoxContainer, on_changed: Callable) -> void:
-	# 持续时间
 	var dur_lbl := Label.new()
 	dur_lbl.text = "隐身持续时间 (Duration): %.1fs" % duration
 	dur_lbl.add_theme_font_size_override("font_size", 12)
@@ -76,7 +75,6 @@ func build_config_panel(container: VBoxContainer, on_changed: Callable) -> void:
 	)
 	container.add_child(dur_slider)
 
-	# 自身半透明度
 	var alpha_lbl := Label.new()
 	alpha_lbl.text = "自身半透明度 (Self-View Alpha): %.2f" % self_alpha
 	alpha_lbl.add_theme_font_size_override("font_size", 12)
@@ -94,7 +92,6 @@ func build_config_panel(container: VBoxContainer, on_changed: Callable) -> void:
 	)
 	container.add_child(alpha_slider)
 
-	# 视角机制提示卡片
 	var tip_panel := PanelContainer.new()
 	var t_style := StyleBoxFlat.new()
 	t_style.bg_color = Color(0.02, 0.12, 0.18, 0.75)
@@ -110,13 +107,13 @@ func build_config_panel(container: VBoxContainer, on_changed: Callable) -> void:
 	tip_panel.add_child(tip_vbox)
 
 	var tip1 := Label.new()
-	tip1.text = "👁️ 自身操控视角：呈现半透明光学迷彩与菲涅尔轮廓"
+	tip1.text = "✨ 隐身时角色从身体多个部位残破消融，显形时发光重构凝聚"
 	tip1.add_theme_font_size_override("font_size", 11)
 	tip1.modulate = Color(0.4, 0.95, 1.0)
 	tip_vbox.add_child(tip1)
 
 	var tip2 := Label.new()
-	tip2.text = "🚫 对方视角 (按F2切换) / Tab全局：绝对隐形 (无模型/无阴影)"
+	tip2.text = "👁️ 自身视角：清爽半透明光学迷彩；对方/旁观视角：绝对隐形"
 	tip2.add_theme_font_size_override("font_size", 11)
 	tip2.modulate = Color(1.0, 0.85, 0.3)
 	tip_vbox.add_child(tip2)
@@ -135,36 +132,50 @@ static func execute_stealth(caster: CharacterBody3D, dur: float, s_alpha: float,
 			prev_tw.kill()
 		_restore_mesh_states(prev_entry.get("meshes", []))
 
-	# Collect all mesh instances
 	var mesh_entries: Array[Dictionary] = []
 	_gather_meshes(caster, mesh_entries)
 
 	var camo_mat := ShaderMaterial.new()
 	camo_mat.shader = StealthCamoShader
 	camo_mat.set_shader_parameter("camo_alpha", s_alpha)
+	camo_mat.set_shader_parameter("is_in_dissolve_mode", true)
+	camo_mat.set_shader_parameter("dissolve_progress", 0.0)
 
 	for entry in mesh_entries:
 		var mi: MeshInstance3D = entry["mesh"]
 		if mi == null or not is_instance_valid(mi):
 			continue
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		if is_spectator_view:
-			mi.visible = false
-		else:
-			mi.visible = true
-			mi.material_override = camo_mat
+		mi.visible = true
+		mi.material_override = camo_mat
 
-	# Hide any floating name tag / badge while stealthed if external
 	_update_tag_visibility(caster, not is_spectator_view)
 
-	# Spawn activation shimmer pulse
-	if vfx_parent != null and is_instance_valid(vfx_parent):
-		_spawn_stealth_pulse(caster.global_position + Vector3.UP * 0.9, vfx_parent, Color(0.35, 0.85, 1.0, 0.7))
+	# Audio activation
+	AudioManagerScript.play_voice_file("res://assets/voice/RPGsounds_Kenney/OGG/clothBelt2.ogg", 1.2)
 
-	# Audio activation feedback
-	AudioManagerScript.play_voice_file("res://assets/voice/RPGsounds_Kenney/OGG/clothBelt2.ogg", 1.0)
+	# 1. 进入隐身的多点平滑残破消融动画 (0.0 -> 1.0 over 0.35s)
+	var dissolve_in_tw := caster.create_tween()
+	dissolve_in_tw.tween_method(func(v: float):
+		if is_instance_valid(camo_mat):
+			camo_mat.set_shader_parameter("dissolve_progress", v)
+	, 0.0, 1.0, 0.35).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 
-	# Cloak lifetime tween
+	dissolve_in_tw.chain().tween_callback(func():
+		if is_instance_valid(camo_mat):
+			if is_spectator_view:
+				# External / Opponent view: completely invisible
+				for entry in mesh_entries:
+					var mi: MeshInstance3D = entry["mesh"]
+					if mi != null and is_instance_valid(mi):
+						mi.visible = false
+			else:
+				# Self view: sustained holographic shimmer
+				camo_mat.set_shader_parameter("is_in_dissolve_mode", false)
+				camo_mat.set_shader_parameter("camo_alpha", s_alpha)
+	)
+
+	# 2. 隐身持续与定时结束
 	var tw := caster.create_tween()
 	_active_stealth[c_id] = {
 		"caster": caster,
@@ -173,7 +184,8 @@ static func execute_stealth(caster: CharacterBody3D, dur: float, s_alpha: float,
 		"vfx_parent": vfx_parent,
 		"camo_mat": camo_mat,
 		"duration": dur,
-		"self_alpha": s_alpha
+		"self_alpha": s_alpha,
+		"is_spectator_view": is_spectator_view
 	}
 
 	tw.tween_interval(dur)
@@ -183,7 +195,7 @@ static func execute_stealth(caster: CharacterBody3D, dur: float, s_alpha: float,
 
 	return true
 
-## Dynamically switches stealth appearance when perspective/controlled actor changes (e.g. F2 or Tab).
+## Dynamically switches stealth appearance when perspective changes
 static func update_perspective(current_active_controller: CharacterBody3D, is_spectator_mode: bool = false) -> void:
 	for c_id in _active_stealth.keys():
 		var entry: Dictionary = _active_stealth[c_id]
@@ -194,6 +206,7 @@ static func update_perspective(current_active_controller: CharacterBody3D, is_sp
 		var mesh_entries: Array = entry.get("meshes", [])
 		var camo_mat: ShaderMaterial = entry.get("camo_mat")
 		var is_self_controlling := (caster == current_active_controller) and not is_spectator_mode
+		entry["is_spectator_view"] = not is_self_controlling
 
 		for item in mesh_entries:
 			var dict: Dictionary = item
@@ -203,11 +216,11 @@ static func update_perspective(current_active_controller: CharacterBody3D, is_sp
 
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			if is_self_controlling:
-				# Self view: translucent hologram
 				mi.visible = true
 				mi.material_override = camo_mat
+				if is_instance_valid(camo_mat):
+					camo_mat.set_shader_parameter("is_in_dissolve_mode", false)
 			else:
-				# External/Opponent view: completely invisible!
 				mi.visible = false
 
 		_update_tag_visibility(caster, is_self_controlling)
@@ -223,13 +236,32 @@ static func end_stealth(caster: CharacterBody3D) -> void:
 	_active_stealth.erase(c_id)
 
 	var mesh_entries: Array = entry.get("meshes", [])
-	_restore_mesh_states(mesh_entries)
-	_update_tag_visibility(caster, true)
+	var camo_mat: ShaderMaterial = entry.get("camo_mat")
 
-	var vfx_parent: Node = entry.get("vfx_parent")
-	if vfx_parent != null and is_instance_valid(vfx_parent) and is_instance_valid(caster):
-		_spawn_stealth_pulse(caster.global_position + Vector3.UP * 0.9, vfx_parent, Color(1.0, 0.95, 0.5, 0.8))
-		AudioManagerScript.play_voice_file("res://assets/voice/RPGsounds_Kenney/OGG/cloth1.ogg", 1.0)
+	if is_instance_valid(camo_mat):
+		camo_mat.set_shader_parameter("is_in_dissolve_mode", true)
+		camo_mat.set_shader_parameter("dissolve_progress", 1.0)
+
+	for item in mesh_entries:
+		var dict: Dictionary = item
+		var mi: MeshInstance3D = dict.get("mesh")
+		if mi != null and is_instance_valid(mi):
+			mi.visible = true
+			mi.material_override = camo_mat
+
+	AudioManagerScript.play_voice_file("res://assets/voice/RPGsounds_Kenney/OGG/cloth1.ogg", 1.2)
+
+	# 显形多点平滑重构凝聚动画 (1.0 -> 0.0 over 0.38s)
+	var reconstruct_tw := caster.create_tween()
+	reconstruct_tw.tween_method(func(v: float):
+		if is_instance_valid(camo_mat):
+			camo_mat.set_shader_parameter("dissolve_progress", v)
+	, 1.0, 0.0, 0.38).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+	reconstruct_tw.chain().tween_callback(func():
+		_restore_mesh_states(mesh_entries)
+		_update_tag_visibility(caster, true)
+	)
 
 static func is_stealthed(caster: CharacterBody3D) -> bool:
 	if caster == null or not is_instance_valid(caster):
@@ -266,30 +298,9 @@ static func _update_tag_visibility(caster: CharacterBody3D, is_visible: bool) ->
 		if child is Label3D:
 			child.visible = is_visible
 
-static func _spawn_stealth_pulse(pos: Vector3, parent: Node, color: Color) -> void:
-	var quad := QuadMesh.new()
-	quad.size = Vector2(1.6, 1.6)
-
-	var inst := MeshInstance3D.new()
-	inst.mesh = quad
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = color
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	inst.material_override = mat
-
-	parent.add_child(inst)
-	inst.global_position = pos
-	inst.scale = Vector3(0.2, 0.2, 0.2)
-
-	var tw := inst.create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(inst, "scale", Vector3(2.2, 2.2, 2.2), 0.28)\
-		.set_trans(Tween.TRANS_CIRC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(mat, "albedo_color:a", 0.0, 0.28)\
-		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.chain().tween_callback(inst.queue_free)
+## reset_state(): drops stealth bookkeeping. Scene entry only.
+func reset_state() -> void:
+	_active_stealth.clear()
 
 
 func preload_assets() -> void:
@@ -297,7 +308,6 @@ func preload_assets() -> void:
 		"res://assets/voice/RPGsounds_Kenney/OGG/clothBelt2.ogg",
 		"res://assets/voice/RPGsounds_Kenney/OGG/cloth1.ogg"
 	])
-
 
 func get_warmup_materials() -> Array:
 	var m := ShaderMaterial.new()

@@ -530,6 +530,12 @@ static func is_being_pulled(target: CharacterBody3D) -> bool:
 	return _active_pulls.has(target.get_instance_id())
 
 
+## reset_state(): drops in-flight cast and pull bookkeeping. Scene entry only.
+func reset_state() -> void:
+	_active_casts.clear()
+	_active_pulls.clear()
+
+
 func preload_assets() -> void:
 	AudioManagerScript.preload_sounds([
 		"res://assets/voice/RPGsounds_Kenney/OGG/knifeSlice.ogg",

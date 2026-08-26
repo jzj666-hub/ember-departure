@@ -63,6 +63,7 @@ const DEV_ENTRIES := [
 ]
 
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const SettingsDialogScript = preload("res://scripts/settings_dialog.gd")
 const VIDEO_OGV_PATH := "res://assets/UI_assets/主界面动画.ogv"
 
 static var open_dev_menu_on_enter: bool = false
@@ -72,6 +73,7 @@ var _mode_select_box: VBoxContainer
 var _dev_scroll: ScrollContainer
 var _dev_box: VBoxContainer
 var _video_player: VideoStreamPlayer
+var _settings_dialog: SettingsDialog = null
 
 
 func _ready() -> void:
@@ -90,6 +92,10 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
+			if _settings_dialog != null and _settings_dialog.visible:
+				_settings_dialog.visible = false
+				get_viewport().set_input_as_handled()
+				return
 			if _dev_scroll != null and _dev_scroll.visible:
 				_show_mode_select()
 				get_viewport().set_input_as_handled()
@@ -171,7 +177,16 @@ func _build_ui() -> void:
 	btn_dev.pressed.connect(_show_dev_menu)
 	_mode_select_box.add_child(btn_dev)
 
-	_mode_select_box.add_child(_spacer(10))
+	_mode_select_box.add_child(_spacer(6))
+
+	var settings_btn := Button.new()
+	settings_btn.text = "⚙️ 画质与系统设置 / Graphics & Settings"
+	if _custom_font != null:
+		settings_btn.add_theme_font_override("font", _custom_font)
+	settings_btn.add_theme_font_size_override("font_size", 16)
+	settings_btn.custom_minimum_size = Vector2(0, 44)
+	settings_btn.pressed.connect(_open_settings_dialog)
+	_mode_select_box.add_child(settings_btn)
 
 	var quit_btn := Button.new()
 	quit_btn.text = "退出游戏 / Quit"
@@ -218,6 +233,29 @@ func _build_ui() -> void:
 	back_btn.custom_minimum_size = Vector2(0, 44)
 	back_btn.pressed.connect(_show_mode_select)
 	_dev_box.add_child(back_btn)
+
+	_build_settings_dialog()
+
+
+func _build_settings_dialog() -> void:
+	var dlg_canvas := CanvasLayer.new()
+	dlg_canvas.layer = 25
+	add_child(dlg_canvas)
+
+	_settings_dialog = SettingsDialogScript.new()
+	_settings_dialog.set_anchors_preset(PRESET_CENTER)
+	_settings_dialog.offset_left = -360
+	_settings_dialog.offset_right = 360
+	_settings_dialog.offset_top = -310
+	_settings_dialog.offset_bottom = 310
+	_settings_dialog.visible = false
+	_settings_dialog.closed.connect(func(): _settings_dialog.visible = false)
+	dlg_canvas.add_child(_settings_dialog)
+
+
+func _open_settings_dialog() -> void:
+	if _settings_dialog != null:
+		_settings_dialog.visible = true
 
 
 func _make_big_mode_button(title: String, desc: String, icon_path: String, border_col: Color) -> Button:

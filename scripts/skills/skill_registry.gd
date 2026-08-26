@@ -14,6 +14,14 @@ const SkillMistScript = preload("res://scripts/skills/skill_mist.gd")
 const SkillSlamScript = preload("res://scripts/skills/skill_slam.gd")
 const SkillJumpBuffScript = preload("res://scripts/skills/skill_jump_buff.gd")
 const SkillCleanseScript = preload("res://scripts/skills/skill_cleanse.gd")
+const SkillThunderScript = preload("res://scripts/skills/skill_thunder.gd")
+const SkillWindBarrageScript = preload("res://scripts/skills/skill_wind_barrage.gd")
+const SkillSwordRainScript = preload("res://scripts/skills/skill_sword_rain.gd")
+const SkillSkyfireScript = preload("res://scripts/skills/skill_skyfire.gd")
+const SkillHammerBeamScript = preload("res://scripts/skills/skill_hammer_beam.gd")
+const SkillRiftSlashScript = preload("res://scripts/skills/skill_rift_slash.gd")
+const SkillGlassShatterScript = preload("res://scripts/skills/skill_glass_shatter.gd")
+const SkillEarthSlashScript = preload("res://scripts/skills/skill_earth_slash.gd")
 
 static var _skills: Dictionary = {}
 static var _skill_order: Array[String] = []
@@ -38,6 +46,14 @@ static func init_registry() -> void:
 	register_skill(SkillSlamScript.new())
 	register_skill(SkillJumpBuffScript.new())
 	register_skill(SkillCleanseScript.new())
+	register_skill(SkillThunderScript.new())
+	register_skill(SkillWindBarrageScript.new())
+	register_skill(SkillSwordRainScript.new())
+	register_skill(SkillSkyfireScript.new())
+	register_skill(SkillHammerBeamScript.new())
+	register_skill(SkillRiftSlashScript.new())
+	register_skill(SkillGlassShatterScript.new())
+	register_skill(SkillEarthSlashScript.new())
 
 	# Preload all audio and assets across all skills
 	for s in _skills.values():
@@ -53,6 +69,17 @@ static func dispel_all_debuffs(actor: CharacterBody3D) -> void:
 	for s in _skills.values():
 		if s.has_method("dispel_actor"):
 			s.call("dispel_actor", actor)
+
+## reset_all_state(): clears every skill's per-session static state.
+## Skill state lives in `static var`s, which outlive scene changes — a debuff still ticking when
+## a scene unloads keeps its entry (and a freed actor ref) until some new effect node ticks it out.
+## Pre: call from a scene's _ready() before any cast. Post: asset caches and shader warmup untouched.
+static func reset_all_state() -> void:
+	init_registry()
+	for s in _skills.values():
+		if s.has_method("reset_state"):
+			s.call("reset_state")
+
 
 static func register_skill(skill: RefCounted) -> void:
 	if skill == null:

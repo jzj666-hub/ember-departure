@@ -13,6 +13,13 @@ extends CharacterBody3D
 
 const PlayerIntentSourceScript = preload("res://scripts/player_intent_source.gd")
 const AudioManagerScript = preload("res://scripts/audio_manager.gd")
+const SkillRiftSlashScript = preload("res://scripts/skills/skill_rift_slash.gd")
+
+## Optional tuning override. null (the default) leaves every export below untouched, so
+## existing scenes are unaffected. Applied at the top of setup(); assign before calling it.
+## Values stay on THIS object rather than behind the resource: nav_provider.gd reads
+## "walk_speed" / "jump_speed" / "climb_enabled" / ... off the body by string name.
+@export var movement_profile: MovementProfile = null
 
 @export var footstep_enabled := true
 var _footstep_distance := 0.0
@@ -313,7 +320,22 @@ var _climb_span := 1.0
 
 
 ## Called by the playground once the character instance is parented here.
+## apply_movement_profile(p): copies every MovementProfile field onto the same-named export.
+## Pre: p may be null (no-op). Post: exports overwritten; string-name lookups still resolve.
+## Field set is discovered at runtime, so adding a param to MovementProfile needs no plumbing.
+func apply_movement_profile(p: MovementProfile) -> void:
+	if p == null:
+		return
+	for prop in p.get_property_list():
+		if (int(prop.usage) & PROPERTY_USAGE_SCRIPT_VARIABLE) == 0:
+			continue
+		if (int(prop.usage) & PROPERTY_USAGE_STORAGE) == 0:
+			continue
+		set(prop.name, p.get(prop.name))
+
+
 func setup(visual: Node3D, follow_camera: Node3D) -> void:
+	apply_movement_profile(movement_profile)
 	character = visual
 	camera = follow_camera
 	# The one full reset. A clip only drives the bones it has tracks for, and the
@@ -522,6 +544,12 @@ func _grounded_state() -> bool:
 
 func _physics_process(delta: float) -> void:
 	if _rig == null:
+		return
+	# 技能强制静止（如技能十六·天锤引雷的抡锤定格）：清零速度、忽略一切输入，
+	# 姿势由技能自己钉死在 AnimationPlayer 上；技能结束时 remove_meta 解除。
+	if has_meta("skill_frozen"):
+		velocity = Vector3.ZERO
+		_consume_intent()
 		return
 	_gather_intent(delta)
 	_brake_cooldown_left = maxf(_brake_cooldown_left - delta, 0.0)
@@ -1215,6 +1243,35 @@ func apply_hit_reaction(hit_clip: String = "hit_chest", stun_time: float = 0.4) 
 		_rig.play_action(hit_clip, 1.0)
 
 
+## Receives combat hit from weapon or skill. Supports flexible argument patterns (damage or hit_pos, damage, push_dir).
+func take_hit(arg1: Variant = 0.0, arg2: Variant = 0.0, arg3: Variant = Vector3.ZERO) -> bool:
+	var hit_pos := global_position + Vector3(0.0, 1.0, 0.0)
+	var dmg := 30.0
+	var push_dir := Vector3.ZERO
+
+	if arg1 is Vector3:
+		hit_pos = arg1
+		dmg = float(arg2)
+		if arg3 is Vector3:
+			push_dir = arg3
+	elif arg1 is float or arg1 is int:
+		dmg = float(arg1)
+		if arg2 is Vector3:
+			hit_pos = arg2
+		if arg3 is Vector3:
+			push_dir = arg3
+
+	if has_meta("take_hit_cb"):
+		var cb: Callable = get_meta("take_hit_cb")
+		if cb.is_valid():
+			cb.call(hit_pos, dmg, push_dir)
+			return true
+	apply_hit_reaction("hit_chest", 0.35)
+	if push_dir.length_squared() > 0.01:
+		velocity += push_dir.normalized() * minf(dmg * 0.15, 6.0)
+	return true
+
+
 # --- the attack ------------------------------------------------------------
 
 ## Starts one node of the weapon's graph and hands it the clock.
@@ -1268,6 +1325,8 @@ func _begin_weapon_action(id: String) -> void:
 	# At its own rate whether it lunges or not: the body travels while the take
 	# plays, so there is no first frame to hold and no clock to hand back.
 	_rig.play_swing(slot, action.rate)
+	# 技能十七·裂空斩势：buff 期内每次起手额外射出一道飞行风刃。无 buff 时为空调用。
+	SkillRiftSlashScript.on_weapon_action(self)
 
 
 ## Runs the current node and lets the graph decide what happens next.

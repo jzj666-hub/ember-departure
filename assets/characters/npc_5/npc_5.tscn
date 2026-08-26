@@ -1,10 +1,10 @@
 [gd_scene format=3 uid="uid://6cyf2o2kn3up"]
 
 [ext_resource type="Script" uid="uid://ch0rg3stebnja" path="res://scripts/character.gd" id="1_boejn"]
-[ext_resource type="AnimationLibrary" uid="uid://di7yhhs8xw5mu" path="res://assets/animations/shared_animations.tres" id="2_t6b6f"]
+[ext_resource type="AnimationLibrary" uid="uid://dju2rv8spr4dr" path="res://assets/animations/shared_animations.tres" id="2_t6b6f"]
 [ext_resource type="PackedScene" uid="uid://e60hbdryy31l" path="res://assets/characters/npc_5/npc.fbx" id="3_xgji8"]
 
-[node name="Npc5" type="Node3D" unique_id=1842979151]
+[node name="Npc5" type="Node3D" unique_id=1179190176]
 script = ExtResource("1_boejn")
 character_id = "npc_5"
 body_height = 1.75
